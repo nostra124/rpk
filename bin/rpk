@@ -103,7 +103,7 @@ STOW=$(which stow)
 
 rpk:bare() {
 	{
-		[ -d "$SELF_DATA" ] && ls -1 "$SELF_DATA"
+		[ -d "$SELF_REPO" ] && ls -1 "$SELF_REPO"
 	} 2>/dev/null | sort -u | sed -z '$ s/\n$//'
 }
 
@@ -807,10 +807,10 @@ command:stage() {
 			[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
 			local WORKTREE=$(command:worktree "$PACKAGE")
 			if [ -z "$WORKTREE" ]; then
-				if [ -d "$SELF_DATA/$PACKAGE" ]; then
+				if [ -d "$SELF_REPO/$PACKAGE" ]; then
 					info "$PACKAGE - staging local package repository"
 					rpk:stage-repo "$PACKAGE"
-				elif [ -d "$SELF_DATA/$SELF-$PACKAGE" ]; then
+				elif [ -d "$SELF_REPO/$SELF-$PACKAGE" ]; then
 					info "$PACKAGE - staging local package repository"
 					rpk:stage-repo "$SELF-$PACKAGE"
 				else
@@ -819,7 +819,7 @@ command:stage() {
 			else
 				info "$PACKAGE - updating local package repository"
 				pushd "$WORKTREE" > /dev/null
-				git pull
+				git pull local "$(git rev-parse --abbrev-ref HEAD)"
 				popd > /dev/null
 			fi
 		done
