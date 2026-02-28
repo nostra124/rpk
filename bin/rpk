@@ -825,6 +825,7 @@ command:stage() {
 				local BARE_REPO="${SELF_REPO}/${PACKAGE}"
 				git remote remove local 2>/dev/null || true
 				git remote add local "$BARE_REPO" 2>&1 || warn "failed to add local remote"
+				git fetch --tags local
 				git pull local "$(git rev-parse --abbrev-ref HEAD)"
 				popd > /dev/null
 			fi
@@ -851,15 +852,15 @@ command:pull() {
 		local BRANCH=$(git rev-parse --abbrev-ref HEAD)
 		
 		if [ -z "$ACCOUNT" ]; then
-			git fetch local || { popd > /dev/null; fatal "failed to fetch from local"; }
+			git fetch --tags local || { popd > /dev/null; fatal "failed to fetch from local"; }
 			git merge "local/$BRANCH" || { popd > /dev/null; fatal "failed to merge from local"; }
 			for REMOTE in $(git remote | grep '@'); do
 				info "pulling from $REMOTE"
-				git fetch "$REMOTE" || warn "failed to fetch from $REMOTE"
+				git fetch --tags "$REMOTE" || warn "failed to fetch from $REMOTE"
 				git merge "$REMOTE/$BRANCH" || warn "failed to merge from $REMOTE"
 			done
 		else
-			git fetch "$ACCOUNT" || { popd > /dev/null; fatal "failed to fetch from $ACCOUNT"; }
+			git fetch --tags "$ACCOUNT" || { popd > /dev/null; fatal "failed to fetch from $ACCOUNT"; }
 			git merge "$ACCOUNT/$BRANCH" || { popd > /dev/null; fatal "failed to merge from $ACCOUNT"; }
 		fi
 		popd > /dev/null
@@ -883,13 +884,13 @@ command:push() {
 		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
 		
 		if [ -z "$ACCOUNT" ]; then
-			git push -u local HEAD || { popd > /dev/null; fatal "failed to push to local"; }
+			git push -u local HEAD --tags || { popd > /dev/null; fatal "failed to push to local"; }
 			for REMOTE in $(git remote | grep '@'); do
 				info "pushing to $REMOTE"
-				git push -u "$REMOTE" HEAD || warn "failed to push to $REMOTE"
+				git push -u "$REMOTE" HEAD --tags || warn "failed to push to $REMOTE"
 			done
 		else
-			git push -u "$ACCOUNT" HEAD || { popd > /dev/null; fatal "failed to push to $ACCOUNT"; }
+			git push -u "$ACCOUNT" HEAD --tags || { popd > /dev/null; fatal "failed to push to $ACCOUNT"; }
 		fi
 		popd > /dev/null
 	fi
@@ -912,11 +913,11 @@ command:release() {
 		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
 		
 		info "$PACKAGE - pushing to local (local bare repo)"
-		git push -u local HEAD || { popd > /dev/null; fatal "failed to push to local"; }
+	git push -u local HEAD --tags || { popd > /dev/null; fatal "failed to push to local"; }
 		
 		if [ -n "$ACCOUNT" ]; then
 			info "$PACKAGE - pushing to $ACCOUNT (remote)"
-			git push -u "$ACCOUNT" HEAD || warn "$PACKAGE - failed to push to $ACCOUNT"
+			git push -u "$ACCOUNT" HEAD --tags || warn "$PACKAGE - failed to push to $ACCOUNT"
 			
 			info "$PACKAGE - uploading rpk to $ACCOUNT"
 			scp "$0" "$ACCOUNT:/tmp/rpk" || { popd > /dev/null; fatal "failed to upload rpk to $ACCOUNT"; }
@@ -926,7 +927,7 @@ command:release() {
 		else
 			for REMOTE in $(git remote | grep '@'); do
 				info "$PACKAGE - pushing to $REMOTE (remote)"
-				git push -u "$REMOTE" HEAD || warn "$PACKAGE - failed to push to $REMOTE"
+				git push -u "$REMOTE" HEAD --tags || warn "$PACKAGE - failed to push to $REMOTE"
 				
 				info "$PACKAGE - uploading rpk to $REMOTE"
 				scp "$0" "$REMOTE:/tmp/rpk" || warn "$PACKAGE - failed to upload rpk to $REMOTE"
@@ -1018,12 +1019,12 @@ command:sync() {
 		elif [ -d "$WORKTREE" ]; then
 			pushd "$WORKTREE" > /dev/null
 			git stash && git clean -fd
-			git fetch local
+			git fetch --tags local
 			git merge local/$(git rev-parse --abbrev-ref HEAD)
-			git push -u local HEAD
-			git fetch "$ACCOUNT"
+			git push -u local HEAD --tags
+			git fetch --tags "$ACCOUNT"
 			git merge "$ACCOUNT/$(git rev-parse --abbrev-ref HEAD)"
-			git push -u "$ACCOUNT" HEAD
+			git push -u "$ACCOUNT" HEAD --tags
 			popd > /dev/null
 		else
 			fatal "$WORKTREE is not a directory"
