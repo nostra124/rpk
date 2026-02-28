@@ -20,7 +20,9 @@ debug() {
 }
 
 info() {
-	[ ! -n "$SELF_QUIET" ] && echo -e "$SELF - info:  \033[32;m$@\033[0m" >&2
+	if [ -n "$SELF_VERBOSE" ] || [ ! -n "$SELF_QUIET" ]; then
+		echo -e "$SELF - info:  \033[32;m$@\033[0m" >&2
+	fi
 }
 
 warn() {
@@ -35,14 +37,22 @@ has() {
 	type -t $KIND:$NAME | grep -q function
 }
 
+validate_package_name() {
+	local NAME="$1"
+	if [[ -z "$NAME" ]] || [[ "$NAME" =~ [./] ]] || [[ "$NAME" == ".." ]]; then
+		fatal "invalid package name: $NAME"
+	fi
+}
+
 # We need to run getops as soon as possible so we catch -d and other
 # options that will modify our behaviour.
 # Commands are handled at the end of this script.
-while getopts "qdf" flag; do
+while getopts "qdfv" flag; do
 	case "$flag" in
 		q) SELF_QUIET=1 ;;
 		d) SELF_DEBUG=1 ;;
 		f) SELF_FORCE=1 ;;
+		v) SELF_VERBOSE=1 ;;
 	esac
 done
 shift $((OPTIND-1))
@@ -196,7 +206,7 @@ package synchronisation commands:
    accounts [pkg]          prints the accounts of the packages in ${SELF_SOURCES}
    stage [pkgs]            stages the packages in ${SELF_SOURCES}
    pull [pkg] [account]    pulls the package <pkg> from <account>
-   push [pkg] [account]    pushs the package <pkg> to <account>
+   push [pkg] [account]    pushes the package <pkg> to <account>
    sync [account] [pkg]    syncs from account <account> the package <pkg>
    drop <account> [pkg]    drops all connections to account <account>
 
@@ -223,37 +233,45 @@ ENDHELP
 
 #------------------------------------------------------------------------------
 command:source() {
-	if [ "$EUID" -eq 0 ]; then
-		echo "/usr/local/src"
-	else
-		echo "$HOME/.local/src"
-	fi
+	echo "$SELF_SOURCES"
 }
 
 #------------------------------------------------------------------------------
 command:target() {
-	if [ "$1" = "system" ]; then
-		echo "/usr/local"
-	elif [ "$1" = "home" ]; then
-		echo "$HOME/.local"
-	elif [ "$1" = "user" ]; then
-		echo "$HOME/.local"
-	else
-		fatal "please specify either home or system"
-	fi
+	case "$1" in
+		system)
+			if [ "$EUID" -eq 0 ]; then
+				echo "/usr/local"
+			else
+				fatal "system target requires root privileges"
+			fi
+			;;
+		home|user)
+			echo "$HOME/.local"
+			;;
+		*)
+			fatal "please specify either home, user, or system"
+			;;
+	esac
 }
 
 #------------------------------------------------------------------------------
 command:bundle() {
-	if [ "$1" = "system" ]; then
-		echo "/usr/local/pkg"
-	elif [ "$1" = "home" ]; then
-		echo "$HOME/.local/pkg"
-	elif [ "$1" = "user" ]; then
-		echo "$HOME/.local/pkg"
-	else
-		fatal "please specify either home or system"
-	fi
+	case "$1" in
+		system)
+			if [ "$EUID" -eq 0 ]; then
+				echo "/usr/local/pkg"
+			else
+				fatal "system bundle requires root privileges"
+			fi
+			;;
+		home|user)
+			echo "$HOME/.local/pkg"
+			;;
+		*)
+			fatal "please specify either home, user, or system"
+			;;
+	esac
 }
 
 #------------------------------------------------------------------------------
@@ -512,10 +530,8 @@ command:changelog() {
 	local VERSION=${2};
 	if [ -z "$VERSION" ]; then
 		local VERSION=$(command:versions $PACKAGE | tail -1)
-		local PREV=$(command:versions | awk -v target="$VERSION" '$0==target{print prev;exit}{prev=$0}')
-	else
-		local PREV=$(command:versions | awk -v target="$VERSION" '$0==target{print prev;exit}{prev=$0}')
 	fi
+	local PREV=$(command:versions | awk -v target="$VERSION" '$0==target{print prev;exit}{prev=$0}')
 	pushd $WORKTREE > /dev/null
 	if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
 		if [ -z "$PREV" ]; then 
@@ -618,7 +634,7 @@ EOF
 	fi
 
 	git add .rpk && git commit -m "initialized .rpk"
-        push:branches local
+	push:branches local
 	popd > /dev/null
 }
 
@@ -710,8 +726,9 @@ command:stage() {
 	if [ "$#" -eq 0 ]; then
 		command:stage $(command:list)
 	else
-		for PACKAGE in $@; do
-			local WORKTREE=$(command:worktree $PACKAGE)
+		for PACKAGE in "$@"; do
+			validate_package_name "$PACKAGE"
+			local WORKTREE=$(command:worktree "$PACKAGE")
 			if [ -z "$WORKTREE" ]; then
 				if [ -d "$SELF_DATA/$PACKAGE" ]; then
 					info "$PACKAGE - staging local package repository"
