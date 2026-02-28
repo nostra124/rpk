@@ -8,7 +8,7 @@
 [ -n "$SELF_DEBUG" ] && set -vx
 
 VERSION='1.0.0'
-SELF=$(basename $0)
+SELF=$(basename "$0")
 
 fatal() {
 	echo -e "$SELF - fatal: \033[31;m$@\033[0m" >&2
@@ -39,17 +39,13 @@ has() {
 # options that will modify our behaviour.
 # Commands are handled at the end of this script.
 while getopts "qdf" flag; do
-	if [ x"$1" = x'-q' ]; then
-		SELF_QUIET=1
-	fi
-	if [ x"$1" = x'-d' ]; then
-		SELF_DEBUG=1
-	fi
-	if [ x"$1" = x'-f' ]; then
-		SELF_FORCE=1
-	fi
-	shift 1
+	case "$flag" in
+		q) SELF_QUIET=1 ;;
+		d) SELF_DEBUG=1 ;;
+		f) SELF_FORCE=1 ;;
+	esac
 done
+shift $((OPTIND-1))
 
 # Read configuration and set defaults if anything's not set
 : ${XDG_CONFIG_HOME:="$HOME/.local/etc"}
@@ -165,7 +161,7 @@ available commands:
    action <cmd> [args]     executes and prints the command <cmd>
    daemon <cmd> [args]     executes and prints the command <cmd> in background
    info <pkg> <msg>        print a information message for package <pkg>
-   warn <pkg> <msg>        print a warning message message for package <pkg>
+   warn <pkg> <msg>        print a warning message for package <pkg>
    fatal <pkg> <msg>       print a (fatal) error message for package <pkg>
 
 package version commands:
@@ -196,7 +192,7 @@ package query commands:
    user                    lists all user installable packages
    show <pkg>              shows all info available regarding <pkg>
 
-package syncronisation commands:
+package synchronisation commands:
    accounts [pkg]          prints the accounts of the packages in ${SELF_SOURCES}
    stage [pkgs]            stages the packages in ${SELF_SOURCES}
    pull [pkg] [account]    pulls the package <pkg> from <account>
@@ -204,7 +200,7 @@ package syncronisation commands:
    sync [account] [pkg]    syncs from account <account> the package <pkg>
    drop <account> [pkg]    drops all connections to account <account>
 
-package dependecy commands:
+package dependency commands:
    depends <pkg>           shows the dependencies of the package <pkg>
    depends <pkg> <script>  executes the script to configure the dependency
 
@@ -215,7 +211,7 @@ package bundle command:
 
 package install and uninstall commands:
    install <pkg> [version] releases the package version
-   delete <pkg>            deletes the package <pkg> from the direcory tree
+   delete <pkg>            deletes the package <pkg> from the directory tree
    update [pkg]            updates the package <pkg> in the directory tree
 
 package specific commands
@@ -263,14 +259,14 @@ command:bundle() {
 #------------------------------------------------------------------------------
 command:action() {
 	echo -e "$SELF - action: \033[90;m$@\033[0m" >&2
-	$@
+	"$@"
 	return $?
 }
 
 #------------------------------------------------------------------------------
 command:daemon() {
-	echo -e "$SELF - action: \033[90;m$@ &\033[0m" >&2
-	$@ &
+	echo -e "$SELF - action: $@ &\033[0m" >&2
+	"$@" &
 	echo $!
 	return $?
 }
@@ -558,7 +554,7 @@ command:platform() {
 			echo "macos"
 			;;
 		*)
-			echo "unkown"
+			echo "unknown"
 			;;
 	esac
 }
@@ -799,7 +795,7 @@ push:branches() {
 	fi
         
 	if [ -n "$SELF_QUIET" ]; then
-		git push -q --receive-pack=$GIT_RECEIVE_PACK $REMOTE --all  > /dev/nul
+		git push -q --receive-pack=$GIT_RECEIVE_PACK $REMOTE --all  > /dev/null
 		git push -q --receive-pack=$GIT_RECEIVE_PACK $REMOTE --tags > /dev/null
 	else
 		git push --receive-pack=$GIT_RECEIVE_PACK $REMOTE --all
@@ -981,7 +977,7 @@ command:package() {
 		elif [ "$(command:type)" = "user" ]; then
 			local PREFIX=$(command:bundle user)/$PACKAGE-$VERSION
 		else
-			fatal "unkown $SELF type of package $PACKAGE"
+			fatal "unknown $SELF type of package $PACKAGE"
 		fi
 		
 		if [ -d $PREFIX ]; then
@@ -999,7 +995,7 @@ command:package() {
 		info "$PACKAGE - packaging into $PREFIX"
 		local OLDUMASK=$(umask); test $EUID -eq 0 && command:action umask 022
 		if ./package $VERSION; then
-			command:action umask $OLDUMASK; info  "$PACKAGE - package script succesfull"
+			command:action umask $OLDUMASK; info  "$PACKAGE - package script successful"
 		else
 			command:action umask $OLDUMASK; fatal "$PACKAGE - package script failure"
 		fi
@@ -1015,7 +1011,7 @@ Packages the package under the bundle directory as <PACKAGE>-<VERSION>. The
 package is basically a git repository located at $SELF_SOURCES
 which contains a package script.
 
-The installation in the patch of the user or the system is typically done with 
+The installation in the path of the user or the system is typically done with 
 the install command. Please note that not all packages have a package scripts. 
 This is specially true for packages which simply wrap an existing system package, 
 like the rpk package tor. Other packages which are installed from the developer
@@ -1085,7 +1081,7 @@ command:install() {
 
 		local OLDUMASK=$(umask); test $EUID -eq 0 && umask 022
 		if ./install $VERSION; then
-			command:action umask $OLDUMASK; info  "$PACKAGE - install script succesfull"
+			command:action umask $OLDUMASK; info  "$PACKAGE - install script successful"
 		else
 			command:action umask $OLDUMASK; fatal "$PACKAGE - install script failure"
 		fi
@@ -1116,7 +1112,7 @@ command:delete() {
 
 	if [ -x ./delete ]; then
 		if ./delete; then
-			info  "$PACKAGE - delete script succesfull"
+			info  "$PACKAGE - delete script successful"
 		else
 			fatal "$PACKAGE - delete script failure"
 		fi
@@ -1203,7 +1199,7 @@ fi
 if has command $1; then
 	if [ -z "$STOW" ]; then
 		if [ ! $1 = "upgrade" ]; then
-			fatal "stow command not found - install trough $SELF upgrade"
+			fatal "stow command not found - install through $SELF upgrade"
 		fi
 	fi
 	
@@ -1213,5 +1209,5 @@ if has command $1; then
 elif command:list | grep --quiet ^$1$; then
 	command:command $1 "${@:2}"
 else
-	fatal "unkown command: ${@}"
+	fatal "unknown command: ${@}"
 fi
