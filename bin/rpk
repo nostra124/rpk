@@ -480,7 +480,7 @@ command:get-patch() {
 #-----------------------------------------------------------------------------
 command:major() {
 	local PACKAGE=${1};
-	validate_package_name "$PACKAGE"
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
 	local WORKTREE=$(command:worktree "$PACKAGE")
 	test -z "$WORKTREE" && fatal "major - package $PACKAGE has no worktree - please stage it"
 	local VERSION=$(command:versions "$PACKAGE" | tail -1)
@@ -504,7 +504,7 @@ command:major() {
 #-----------------------------------------------------------------------------
 command:minor() {
 	local PACKAGE=${1};
-	validate_package_name "$PACKAGE"
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
 	local WORKTREE=$(command:worktree "$PACKAGE")
 	test -z "$WORKTREE" && fatal "minor - package $PACKAGE has no worktree - please stage it"
 	local VERSION=$(command:versions "$PACKAGE" | tail -1)
@@ -528,7 +528,7 @@ command:minor() {
 #-----------------------------------------------------------------------------
 command:patch() {
 	local PACKAGE=${1};
-	validate_package_name "$PACKAGE"
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
 	local WORKTREE=$(command:worktree "$PACKAGE")
 	test -z "$WORKTREE" && fatal "patch - package $PACKAGE has no worktree - please stage it"
 	local VERSION=$(command:versions "$PACKAGE" | tail -1)
@@ -762,7 +762,7 @@ command:stage() {
 		command:stage $(command:list)
 	else
 		for PACKAGE in "$@"; do
-			validate_package_name "$PACKAGE"
+			[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
 			local WORKTREE=$(command:worktree "$PACKAGE")
 			if [ -z "$WORKTREE" ]; then
 				if [ -d "$SELF_DATA/$PACKAGE" ]; then
@@ -1166,7 +1166,7 @@ ENDHELP
 #------------------------------------------------------------------------------
 command:delete() {
 	local PACKAGE=${1};
-	validate_package_name "$PACKAGE"
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
 	local WORKTREE=$(command:worktree "$PACKAGE")
 	test -z "$WORKTREE" && fatal "delete - package $PACKAGE has no worktree - please stage it"
 
