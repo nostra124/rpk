@@ -151,9 +151,7 @@ ensure-remote() {
 	local REMOTE=$1
 	local BARE_REPO=$2
 	
-	if git remote | grep -q "^${REMOTE}$"; then
-		return 0
-	fi
+	git remote remove "$REMOTE" 2>/dev/null || true
 	
 	if [[ "$REMOTE" == *"@"* ]]; then
 		info "adding remote $REMOTE pointing to $BARE_REPO"
@@ -844,13 +842,16 @@ command:stage() {
 #------------------------------------------------------------------------------
 command:pull() {
 	local PACKAGE=${1}
-	local ACCOUNT=${2}
+	shift
+	local ACCOUNTS=("$@")
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	[ -n "$ACCOUNT" ] && validate_account_name "$ACCOUNT"
+	for ACCOUNT in "${ACCOUNTS[@]}"; do
+		[ -n "$ACCOUNT" ] && validate_account_name "$ACCOUNT"
+	done
 	local WORKTREE=$(command:worktree "$PACKAGE")
 	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
 		for PACKAGE in $(command:list); do
-			command:pull "$PACKAGE" "$ACCOUNT"
+			command:pull "$PACKAGE" "${ACCOUNTS[@]}"
 		done
 	else
 		test -z "$WORKTREE" && fatal "pull - package $PACKAGE has no worktree - please stage it"
@@ -859,19 +860,26 @@ command:pull() {
 		
 		local BRANCH=$(git rev-parse --abbrev-ref HEAD)
 		
-		if [ -z "$ACCOUNT" ]; then
+		if [ ${#ACCOUNTS[@]} -eq 0 ]; then
 			git fetch --tags local || { popd > /dev/null; fatal "failed to fetch from local"; }
 			git merge "local/$BRANCH" || { popd > /dev/null; fatal "failed to merge from local"; }
 			for REMOTE in $(git remote | grep '@'); do
-				ensure-remote "$REMOTE" "$REMOTE:$SELF_REPO/$PACKAGE" || continue
+				ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || continue
 				info "pulling from $REMOTE"
 				git fetch --tags "$REMOTE" || warn "failed to fetch from $REMOTE"
 				git merge "$REMOTE/$BRANCH" || warn "failed to merge from $REMOTE"
 			done
 		else
-			ensure-remote "$ACCOUNT" "$ACCOUNT:$SELF_REPO/$PACKAGE" || true
-			git fetch --tags "$ACCOUNT" || { popd > /dev/null; fatal "failed to fetch from $ACCOUNT"; }
-			git merge "$ACCOUNT/$BRANCH" || { popd > /dev/null; fatal "failed to merge from $ACCOUNT"; }
+			for ACCOUNT in "${ACCOUNTS[@]}"; do
+				if ssh "$ACCOUNT" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
+					ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
+					info "pulling from $ACCOUNT"
+					git fetch --tags "$ACCOUNT" || warn "failed to fetch from $ACCOUNT"
+					git merge "$ACCOUNT/$BRANCH" || warn "failed to merge from $ACCOUNT"
+				else
+					warn "remote bare repo $ACCOUNT:~/.local/var/lib/repo/$PACKAGE does not exist"
+				fi
+			done
 		fi
 		popd > /dev/null
 	fi
@@ -880,37 +888,49 @@ command:pull() {
 #------------------------------------------------------------------------------
 command:push() {
 	local PACKAGE=${1}
-	local ACCOUNT=${2}
+	shift
+	local ACCOUNTS=("$@")
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	[ -n "$ACCOUNT" ] && validate_account_name "$ACCOUNT"
+	for ACCOUNT in "${ACCOUNTS[@]}"; do
+		[ -n "$ACCOUNT" ] && validate_account_name "$ACCOUNT"
+	done
 	local WORKTREE=$(command:worktree "$PACKAGE")
 	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
 		for PACKAGE in $(command:list); do
-			command:push "$PACKAGE" "$ACCOUNT"
+			command:push "$PACKAGE" "${ACCOUNTS[@]}"
 		done
 	else
 		test -z "$WORKTREE" && fatal "push - package $PACKAGE has no worktree - please stage it"
 		pushd "$WORKTREE" > /dev/null
 		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
 		
-		if [ -z "$ACCOUNT" ]; then
+		if [ ${#ACCOUNTS[@]} -eq 0 ]; then
 			git push -u local HEAD --tags || { popd > /dev/null; fatal "failed to push to local"; }
 			for REMOTE in $(git remote | grep '@'); do
-				if ssh "$REMOTE" "test -d $SELF_REPO/$PACKAGE" 2>/dev/null; then
+				if ssh "$REMOTE" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
+					ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || true
 					info "pushing to $REMOTE"
 					git push "$REMOTE" HEAD --tags || warn "failed to push to $REMOTE"
 				else
-					warn "remote bare repo $REMOTE:$SELF_REPO/$PACKAGE does not exist"
+					info "creating bare repo on $REMOTE"
+					ssh "$REMOTE" "mkdir -p ~/.local/var/lib/repo && git init --bare ~/.local/var/lib/repo/$PACKAGE" || warn "failed to create bare repo on $REMOTE"
+					ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || true
+					git push "$REMOTE" HEAD --tags || warn "failed to push to $REMOTE"
 				fi
 			done
 		else
-			if ssh "$ACCOUNT" "test -d $SELF_REPO/$PACKAGE" 2>/dev/null; then
-				ensure-remote "$ACCOUNT" "$ACCOUNT:$SELF_REPO/$PACKAGE" || true
-				git push "$ACCOUNT" HEAD --tags || { popd > /dev/null; fatal "failed to push to $ACCOUNT"; }
-				git push --set-upstream "$ACCOUNT" HEAD --tags || true
-			else
-				warn "remote bare repo $ACCOUNT:$SELF_REPO/$PACKAGE does not exist"
-			fi
+			for ACCOUNT in "${ACCOUNTS[@]}"; do
+				if ssh "$ACCOUNT" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
+					ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
+					info "pushing to $ACCOUNT"
+					git push "$ACCOUNT" HEAD --tags || warn "failed to push to $ACCOUNT"
+				else
+					info "creating bare repo on $ACCOUNT"
+					ssh "$ACCOUNT" "mkdir -p ~/.local/var/lib/repo && git init --bare ~/.local/var/lib/repo/$PACKAGE" || warn "failed to create bare repo on $ACCOUNT"
+					ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
+					git push "$ACCOUNT" HEAD --tags || warn "failed to push to $ACCOUNT"
+				fi
+			done
 		fi
 		popd > /dev/null
 	fi
@@ -919,13 +939,16 @@ command:push() {
 #------------------------------------------------------------------------------
 command:release() {
 	local PACKAGE=${1}
-	local ACCOUNT=${2}
+	shift
+	local ACCOUNTS=("$@")
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	[ -n "$ACCOUNT" ] && validate_account_name "$ACCOUNT"
+	for ACCOUNT in "${ACCOUNTS[@]}"; do
+		[ -n "$ACCOUNT" ] && validate_account_name "$ACCOUNT"
+	done
 	local WORKTREE=$(command:worktree "$PACKAGE")
 	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
 		for PACKAGE in $(command:list); do
-			command:release "$PACKAGE" "$ACCOUNT"
+			command:release "$PACKAGE" "${ACCOUNTS[@]}"
 		done
 	else
 		test -z "$WORKTREE" && fatal "release - package $PACKAGE has no worktree - please stage it"
@@ -933,26 +956,37 @@ command:release() {
 		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
 		
 		info "$PACKAGE - pushing to local (local bare repo)"
-	git push -u local HEAD --tags || { popd > /dev/null; fatal "failed to push to local"; }
+		git push -u local HEAD --tags || { popd > /dev/null; fatal "failed to push to local"; }
 		
-		if [ -n "$ACCOUNT" ]; then
-			if ssh "$ACCOUNT" "test -d $SELF_REPO/$PACKAGE" 2>/dev/null; then
-				ensure-remote "$ACCOUNT" "$ACCOUNT:$SELF_REPO/$PACKAGE" || true
-				info "$PACKAGE - pushing to $ACCOUNT (remote)"
-				git push "$ACCOUNT" HEAD --tags || warn "$PACKAGE - failed to push to $ACCOUNT"
-				
-				info "$PACKAGE - uploading rpk to $ACCOUNT"
-				scp "$0" "$ACCOUNT:/tmp/rpk" || warn "$PACKAGE - failed to upload rpk to $ACCOUNT"
-				
-				info "$PACKAGE - running update on $ACCOUNT"
-				ssh "$ACCOUNT" "/tmp/rpk update $PACKAGE" || warn "$PACKAGE - failed to update on $ACCOUNT"
-			else
-				warn "remote bare repo $ACCOUNT:$SELF_REPO/$PACKAGE does not exist"
-			fi
+		if [ ${#ACCOUNTS[@]} -gt 0 ]; then
+			for ACCOUNT in "${ACCOUNTS[@]}"; do
+				if ssh "$ACCOUNT" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
+					ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
+					info "$PACKAGE - pushing to $ACCOUNT (remote)"
+					git push "$ACCOUNT" HEAD --tags || warn "$PACKAGE - failed to push to $ACCOUNT"
+					
+					info "$PACKAGE - uploading rpk to $ACCOUNT"
+					scp "$0" "$ACCOUNT:/tmp/rpk" || warn "$PACKAGE - failed to upload rpk to $ACCOUNT"
+					
+					info "$PACKAGE - running update on $ACCOUNT"
+					ssh "$ACCOUNT" "/tmp/rpk update $PACKAGE" || warn "$PACKAGE - failed to update on $ACCOUNT"
+				else
+					info "$PACKAGE - creating bare repo on $ACCOUNT"
+					ssh "$ACCOUNT" "mkdir -p ~/.local/var/lib/repo && git init --bare ~/.local/var/lib/repo/$PACKAGE" || warn "$PACKAGE - failed to create bare repo on $ACCOUNT"
+					ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
+					git push "$ACCOUNT" HEAD --tags || warn "$PACKAGE - failed to push to $ACCOUNT"
+					
+					info "$PACKAGE - uploading rpk to $ACCOUNT"
+					scp "$0" "$ACCOUNT:/tmp/rpk" || warn "$PACKAGE - failed to upload rpk to $ACCOUNT"
+					
+					info "$PACKAGE - running update on $ACCOUNT"
+					ssh "$ACCOUNT" "/tmp/rpk update $PACKAGE" || warn "$PACKAGE - failed to update on $ACCOUNT"
+				fi
+			done
 		else
 			for REMOTE in $(git remote | grep '@'); do
-				if ssh "$REMOTE" "test -d $SELF_REPO/$PACKAGE" 2>/dev/null; then
-					ensure-remote "$REMOTE" "$REMOTE:$SELF_REPO/$PACKAGE" || continue
+				if ssh "$REMOTE" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
+					ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || continue
 					info "$PACKAGE - pushing to $REMOTE (remote)"
 					git push "$REMOTE" HEAD --tags || warn "$PACKAGE - failed to push to $REMOTE"
 					
@@ -962,7 +996,16 @@ command:release() {
 					info "$PACKAGE - running update on $REMOTE"
 					ssh "$REMOTE" "/tmp/rpk update $PACKAGE" || warn "$PACKAGE - failed to update on $REMOTE"
 				else
-					warn "remote bare repo $REMOTE:$SELF_REPO/$PACKAGE does not exist"
+					info "$PACKAGE - creating bare repo on $REMOTE"
+					ssh "$REMOTE" "mkdir -p ~/.local/var/lib/repo && git init --bare ~/.local/var/lib/repo/$PACKAGE" || warn "$PACKAGE - failed to create bare repo on $REMOTE"
+					ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || true
+					git push "$REMOTE" HEAD --tags || warn "$PACKAGE - failed to push to $REMOTE"
+					
+					info "$PACKAGE - uploading rpk to $REMOTE"
+					scp "$0" "$REMOTE:/tmp/rpk" || warn "$PACKAGE - failed to upload rpk to $REMOTE"
+					
+					info "$PACKAGE - running update on $REMOTE"
+					ssh "$REMOTE" "/tmp/rpk update $PACKAGE" || warn "$PACKAGE - failed to update on $REMOTE"
 				fi
 			done
 		fi
