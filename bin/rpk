@@ -225,6 +225,7 @@ package synchronisation commands:
    stage [pkgs]            stages the packages in ${SELF_SOURCES}
    pull [pkg] [account]    pulls the package <pkg> from <account>
    push [pkg] [account]    pushes the package <pkg> to <account>
+   release [pkg] [account] pushes and runs update on remote
    sync [account] [pkg]    syncs from account <account> the package <pkg>
    drop <account> [pkg]    drops all connections to account <account>
 
@@ -830,6 +831,36 @@ command:push() {
 		else
 			git push -u "$ACCOUNT" HEAD || { popd > /dev/null; fatal "failed to push to $ACCOUNT"; }
 		fi
+		popd > /dev/null
+	fi
+}
+
+#------------------------------------------------------------------------------
+command:release() {
+	local PACKAGE=${1}
+	local ACCOUNT=${2}
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
+	[ -n "$ACCOUNT" ] && validate_account_name "$ACCOUNT"
+	local WORKTREE=$(command:worktree "$PACKAGE")
+	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
+		for PACKAGE in $(command:list); do
+			command:release "$PACKAGE"
+		done
+	else
+		test -z "$WORKTREE" && fatal "release - package $PACKAGE has no worktree - please stage it"
+		pushd "$WORKTREE" > /dev/null
+		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
+		test -z "$ACCOUNT" && fatal "release - please specify an account"
+		
+		info "$PACKAGE - pushing to $ACCOUNT"
+		git push -u "$ACCOUNT" HEAD || { popd > /dev/null; fatal "failed to push to $ACCOUNT"; }
+		
+		info "$PACKAGE - uploading rpk to $ACCOUNT"
+		scp "$0" "$ACCOUNT:/tmp/rpk" || { popd > /dev/null; fatal "failed to upload rpk to $ACCOUNT"; }
+		
+		info "$PACKAGE - running update on $ACCOUNT"
+		ssh "$ACCOUNT" "/tmp/rpk update $PACKAGE" || warn "$PACKAGE - failed to update on $ACCOUNT"
+		
 		popd > /dev/null
 	fi
 }
