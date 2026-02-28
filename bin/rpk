@@ -55,7 +55,7 @@ git() {
 
 validate_account_name() {
 	local NAME="$1"
-	if [[ -z "$NAME" ]] || [[ "$NAME" =~ [./] ]] || [[ "$NAME" == ".." ]]; then
+	if [[ -z "$NAME" ]] || [[ "$NAME" =~ ^[^a-zA-Z0-9@._-] ]]; then
 		fatal "invalid account name: $NAME"
 	fi
 }
@@ -147,6 +147,28 @@ rpk:account-config() {
 	echo "$ACCOUNT_CONFIG"
 }
 
+ensure-remote() {
+	local REMOTE=$1
+	local BARE_REPO=$2
+	
+	if git remote | grep -q "^${REMOTE}$"; then
+		return 0
+	fi
+	
+	if [[ "$REMOTE" == *"@"* ]]; then
+		info "adding remote $REMOTE pointing to $BARE_REPO"
+		git remote add "$REMOTE" "$BARE_REPO" 2>/dev/null || warn "failed to add remote $REMOTE"
+		return 0
+	elif [ -d "$BARE_REPO" ]; then
+		info "adding remote $REMOTE pointing to $BARE_REPO"
+		git remote add "$REMOTE" "$BARE_REPO"
+		return $?
+	else
+		warn "bare repository $BARE_REPO does not exist"
+		return 1
+	fi
+}
+
 NAT='0|[1-9][0-9]*'
 ALPHANUM='[0-9]*[A-Za-z-][0-9A-Za-z-]*'
 IDENT="$NAT|$ALPHANUM"
@@ -216,9 +238,9 @@ package version commands:
    changelog <version>     get the changelog for the respective version
 
 system commands:
-    platform               prints the platform name of the base system
-    upgrade                upgrades and potentially restarts the base system
-     init [account]         initializes the .rpk directory
+   platform                prints the platform name of the base system
+   upgrade                 upgrades and potentially restarts the base system
+   init                    initializes the .rpk directory
 
 package query commands:
    type <pkg>              shows the package type (system|user)
@@ -642,7 +664,6 @@ command:upgrade() {
 
 #------------------------------------------------------------------------------
 command:init() {
-	local ACCOUNT=${1}
 	local WORKTREE=$(git rev-parse --show-toplevel 2> /dev/null)
 	local REPO_NAME=$(basename "$WORKTREE")
 	test -z "$WORKTREE" && fatal "we are not in a git repository"
@@ -657,19 +678,6 @@ command:init() {
 		if ! git remote add local "$SELF_REPO/$REPO_NAME"; then
 			popd > /dev/null
 			fatal "failed to add local remote"
-		fi
-	fi
-	
-	if [ -n "$ACCOUNT" ]; then
-		validate_account_name "$ACCOUNT"
-		if git remote | grep -q "^${ACCOUNT}$"; then
-			info "$ACCOUNT remote already exists"
-		else
-			info "setting up $ACCOUNT remote"
-			if ! git remote add "$ACCOUNT" "$ACCOUNT:$SELF_REPO/$REPO_NAME"; then
-				popd > /dev/null
-				fatal "failed to add $ACCOUNT remote"
-			fi
 		fi
 	fi
 	
@@ -855,11 +863,13 @@ command:pull() {
 			git fetch --tags local || { popd > /dev/null; fatal "failed to fetch from local"; }
 			git merge "local/$BRANCH" || { popd > /dev/null; fatal "failed to merge from local"; }
 			for REMOTE in $(git remote | grep '@'); do
+				ensure-remote "$REMOTE" "$REMOTE:$SELF_REPO/$PACKAGE" || continue
 				info "pulling from $REMOTE"
 				git fetch --tags "$REMOTE" || warn "failed to fetch from $REMOTE"
 				git merge "$REMOTE/$BRANCH" || warn "failed to merge from $REMOTE"
 			done
 		else
+			ensure-remote "$ACCOUNT" "$ACCOUNT:$SELF_REPO/$PACKAGE" || true
 			git fetch --tags "$ACCOUNT" || { popd > /dev/null; fatal "failed to fetch from $ACCOUNT"; }
 			git merge "$ACCOUNT/$BRANCH" || { popd > /dev/null; fatal "failed to merge from $ACCOUNT"; }
 		fi
@@ -886,11 +896,21 @@ command:push() {
 		if [ -z "$ACCOUNT" ]; then
 			git push -u local HEAD --tags || { popd > /dev/null; fatal "failed to push to local"; }
 			for REMOTE in $(git remote | grep '@'); do
-				info "pushing to $REMOTE"
-				git push -u "$REMOTE" HEAD --tags || warn "failed to push to $REMOTE"
+				if ssh "$REMOTE" "test -d $SELF_REPO/$PACKAGE" 2>/dev/null; then
+					info "pushing to $REMOTE"
+					git push "$REMOTE" HEAD --tags || warn "failed to push to $REMOTE"
+				else
+					warn "remote bare repo $REMOTE:$SELF_REPO/$PACKAGE does not exist"
+				fi
 			done
 		else
-			git push -u "$ACCOUNT" HEAD --tags || { popd > /dev/null; fatal "failed to push to $ACCOUNT"; }
+			if ssh "$ACCOUNT" "test -d $SELF_REPO/$PACKAGE" 2>/dev/null; then
+				ensure-remote "$ACCOUNT" "$ACCOUNT:$SELF_REPO/$PACKAGE" || true
+				git push "$ACCOUNT" HEAD --tags || { popd > /dev/null; fatal "failed to push to $ACCOUNT"; }
+				git push --set-upstream "$ACCOUNT" HEAD --tags || true
+			else
+				warn "remote bare repo $ACCOUNT:$SELF_REPO/$PACKAGE does not exist"
+			fi
 		fi
 		popd > /dev/null
 	fi
@@ -916,24 +936,34 @@ command:release() {
 	git push -u local HEAD --tags || { popd > /dev/null; fatal "failed to push to local"; }
 		
 		if [ -n "$ACCOUNT" ]; then
-			info "$PACKAGE - pushing to $ACCOUNT (remote)"
-			git push -u "$ACCOUNT" HEAD --tags || warn "$PACKAGE - failed to push to $ACCOUNT"
-			
-			info "$PACKAGE - uploading rpk to $ACCOUNT"
-			scp "$0" "$ACCOUNT:/tmp/rpk" || { popd > /dev/null; fatal "failed to upload rpk to $ACCOUNT"; }
-			
-			info "$PACKAGE - running update on $ACCOUNT"
-			ssh "$ACCOUNT" "/tmp/rpk update $PACKAGE" || warn "$PACKAGE - failed to update on $ACCOUNT"
+			if ssh "$ACCOUNT" "test -d $SELF_REPO/$PACKAGE" 2>/dev/null; then
+				ensure-remote "$ACCOUNT" "$ACCOUNT:$SELF_REPO/$PACKAGE" || true
+				info "$PACKAGE - pushing to $ACCOUNT (remote)"
+				git push "$ACCOUNT" HEAD --tags || warn "$PACKAGE - failed to push to $ACCOUNT"
+				
+				info "$PACKAGE - uploading rpk to $ACCOUNT"
+				scp "$0" "$ACCOUNT:/tmp/rpk" || warn "$PACKAGE - failed to upload rpk to $ACCOUNT"
+				
+				info "$PACKAGE - running update on $ACCOUNT"
+				ssh "$ACCOUNT" "/tmp/rpk update $PACKAGE" || warn "$PACKAGE - failed to update on $ACCOUNT"
+			else
+				warn "remote bare repo $ACCOUNT:$SELF_REPO/$PACKAGE does not exist"
+			fi
 		else
 			for REMOTE in $(git remote | grep '@'); do
-				info "$PACKAGE - pushing to $REMOTE (remote)"
-				git push -u "$REMOTE" HEAD --tags || warn "$PACKAGE - failed to push to $REMOTE"
-				
-				info "$PACKAGE - uploading rpk to $REMOTE"
-				scp "$0" "$REMOTE:/tmp/rpk" || warn "$PACKAGE - failed to upload rpk to $REMOTE"
-				
-				info "$PACKAGE - running update on $REMOTE"
-				ssh "$REMOTE" "/tmp/rpk update $PACKAGE" || warn "$PACKAGE - failed to update on $REMOTE"
+				if ssh "$REMOTE" "test -d $SELF_REPO/$PACKAGE" 2>/dev/null; then
+					ensure-remote "$REMOTE" "$REMOTE:$SELF_REPO/$PACKAGE" || continue
+					info "$PACKAGE - pushing to $REMOTE (remote)"
+					git push "$REMOTE" HEAD --tags || warn "$PACKAGE - failed to push to $REMOTE"
+					
+					info "$PACKAGE - uploading rpk to $REMOTE"
+					scp "$0" "$REMOTE:/tmp/rpk" || warn "$PACKAGE - failed to upload rpk to $REMOTE"
+					
+					info "$PACKAGE - running update on $REMOTE"
+					ssh "$REMOTE" "/tmp/rpk update $PACKAGE" || warn "$PACKAGE - failed to update on $REMOTE"
+				else
+					warn "remote bare repo $REMOTE:$SELF_REPO/$PACKAGE does not exist"
+				fi
 			done
 		fi
 		
