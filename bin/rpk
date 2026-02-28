@@ -1398,8 +1398,12 @@ command:update() {
 			popd > /dev/null
 		fi
 	else
-		local WORKTREE=$(command:worktree $PACKAGE)
-		test -z "$WORKTREE" && fatal "update - package $PACKAGE has no worktree - please stage it"
+		local WORKTREE=$(command:worktree "$PACKAGE")
+		if [ -z "$WORKTREE" ]; then
+			info "package $PACKAGE not staged, staging now"
+			command:stage "$PACKAGE"
+			local WORKTREE=$(command:worktree "$PACKAGE")
+		fi
 	fi
 		
 	pushd $WORKTREE > /dev/null
