@@ -1,0 +1,9 @@
+#!/bin/bash
+
+if [ -x /opt/local/bin/port ]; then
+	which openssl  > /dev/null || rpk action sudo port install openssl
+elif [ -x /usr/bin/apt-get ]; then
+	which openssl  > /dev/null || rpk action sudo apt-get --yes install openssl
+elif [ -x /bin/opkg ]; then
+	which openssl  > /dev/null || rpk action opkg install openssl
+fi

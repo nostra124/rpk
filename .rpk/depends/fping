@@ -1,0 +1,9 @@
+#!/bin/bash
+
+if [ -x /opt/local/bin/port ]; then
+	which fping > /dev/null || rpk action sudo port install fping
+elif [ -x /usr/bin/apt-get ]; then
+	which fping > /dev/null || rpk action sudo apt-get --yes install fping
+elif [ -x /bin/opkg ]; then
+	which fping > /dev/null || rpk action opkg install fping
+fi

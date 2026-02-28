@@ -1,0 +1,9 @@
+#!/bin/bash
+
+if [ -x /opt/local/bin/port ]; then
+	which bash  > /dev/null || rpk action sudo port install bash
+elif [ -x /usr/bin/apt-get ]; then
+	which bash  > /dev/null || rpk action sudo apt-get --yes install bash
+elif [ -x /bin/opkg ]; then
+	which bash  > /dev/null || rpk action opkg install bash
+fi

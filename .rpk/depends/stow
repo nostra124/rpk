@@ -1,0 +1,9 @@
+#!/bin/bash
+
+if [ -x /opt/local/bin/port ]; then
+	which stow  > /dev/null || rpk action sudo port install stow
+elif [ -x /usr/bin/apt-get ]; then
+	which stow  > /dev/null || rpk action sudo apt-get --yes install stow
+elif [ -x /bin/opkg ]; then
+	which stow  > /dev/null || rpk action opkg install stow
+fi

@@ -1,0 +1,1217 @@
+#!/bin/bash
+
+############################################################################
+# Configuration section
+############################################################################
+
+# This should always be the first line of code to facilitate debugging
+[ -n "$SELF_DEBUG" ] && set -vx
+
+VERSION='1.0.0'
+SELF=$(basename $0)
+
+fatal() {
+	echo -e "$SELF - fatal: \033[31;m$@\033[0m" >&2
+	exit 1
+}
+
+debug() {
+	[ -n "$SELF_DEBUG" ] && echo -e "$SELF - debug: \033[90;m$@\033[0m" >&2
+}
+
+info() {
+	[ ! -n "$SELF_QUIET" ] && echo -e "$SELF - info:  \033[32;m$@\033[0m" >&2
+}
+
+warn() {
+	echo -e "$SELF - warn:  \033[33;1;m$@\033[0m" >&2
+}
+
+# checks if a certain function exists: eg. has command update
+has() {
+	local KIND=$1
+	local NAME=$2
+	
+	type -t $KIND:$NAME | grep -q function
+}
+
+# We need to run getops as soon as possible so we catch -d and other
+# options that will modify our behaviour.
+# Commands are handled at the end of this script.
+while getopts "qdf" flag; do
+	if [ x"$1" = x'-q' ]; then
+		SELF_QUIET=1
+	fi
+	if [ x"$1" = x'-d' ]; then
+		SELF_DEBUG=1
+	fi
+	if [ x"$1" = x'-f' ]; then
+		SELF_FORCE=1
+	fi
+	shift 1
+done
+
+# Read configuration and set defaults if anything's not set
+: ${XDG_CONFIG_HOME:="$HOME/.local/etc"}
+: ${XDG_CACHE_HOME:="$HOME/.cache"}
+: ${XDG_DATA_HOME:="$HOME/.local/var/lib"}
+: ${EUID:=$(id -u)}
+
+if [ "$EUID" -ne 0 ]; then
+	SELF_CONFIG=${XDG_CONFIG_HOME}/${SELF}
+	SELF_CACHE=${XDG_CACHE_HOME}/${SELF}
+	SELF_DATA=${XDG_DATA_HOME}/${SELF}
+	SELF_SOURCES=${HOME}/.local/src
+else
+	SELF_CONFIG=/etc/${SELF}
+	SELF_CACHE=/var/cache/${SELF}
+	SELF_DATA=/var/lib/${SELF}
+	SELF_SOURCES=/usr/local/src
+fi
+
+mkdir -p "$SELF_DATA"
+mkdir -p "$SELF_SOURCES"
+
+[ -n "$SELF_VERBOSE" ] && set -vx
+STOW=$(which stow)
+[ -z "$STOW" ] && [ -x /opt/local/bin/stow ] && STOW=/opt/local/bin/stow
+
+rpk:bare() {
+	{
+		[ -d "$SELF_DATA" ] && ls -1 "$SELF_DATA"
+	} 2>/dev/null | sort -u | sed -z '$ s/\n$//'
+}
+
+rpk:ssh-known-accounts() {
+	for ACCOUNT in $(ls -1 "$SELF_CONFIG/ssh" 2>/dev/null | sed 's/.pub//g'); do
+		test -f "$SELF_CONFIG/ssh/$ACCOUNT.pub" && echo "$ACCOUNT"
+	done | grep -v "^$USER$" | sort -u | sed -z '$ s/\n$//'
+}
+
+rpk:stage-repo() {
+	local REPO=$1
+	local WORKTREE="$SELF_SOURCES/$REPO"
+	local BARE_REPO="$SELF_DATA/$REPO"
+
+	[ -d "$WORKTREE" -a ! -d "$WORKTREE/.git" ] && rm -rf "$WORKTREE"
+
+	if [ -d "$WORKTREE" ]; then
+		pushd "$WORKTREE" > /dev/null
+		git remote remove origin 2>/dev/null
+		git remote add origin "$BARE_REPO" 2>/dev/null
+		popd > /dev/null
+	elif [ -d "$BARE_REPO" ]; then
+		git clone "$BARE_REPO" "$WORKTREE"
+		pushd "$WORKTREE" > /dev/null
+		git remote remove origin
+		popd > /dev/null
+	else
+		return 1
+	fi
+	return 0
+}
+
+rpk:account-config() {
+	: ${ACCOUNT_CONFIG:="$HOME/.config/account"}
+	mkdir -p "$ACCOUNT_CONFIG/ssh"
+	echo "$ACCOUNT_CONFIG"
+}
+
+NAT='0|[1-9][0-9]*'
+ALPHANUM='[0-9]*[A-Za-z-][0-9A-Za-z-]*'
+IDENT="$NAT|$ALPHANUM"
+FIELD='[0-9A-Za-z-]+'
+
+SEMVER_REGEX="^[vV]?($NAT)\\.($NAT)\\.($NAT)(\\-(${IDENT})(\\.(${IDENT}))*)?(\\+${FIELD}(\\.${FIELD})*)?$"
+
+command:help() {
+	if [[ $# != 0 ]]; then
+		if ! has command $1; then
+			echo "'$1' is not an $SELF command"
+			echo ""
+			echo "please see '$SELF help'"
+			exit -1
+		elif ! has help $1; then
+			echo "No help found for '$1'"
+			echo ""
+			echo "please see '$SELF help'"
+			exit -2
+		else
+			help:$1
+			return 0
+		fi
+	else
+		cat >&2 <<ENDHELP
+usage: $SELF <options> <command>
+
+options:
+   -d                Enable debug mode
+   -v                Enable verbose mode
+   -f                Enable force mode
+
+   $SELF implements a simple package manager. Packages are git repositories 
+   that need to provide the following scripts/files:
+     * depends/ - directory providing scripts to fulfill prerequisites
+     * package  - executable to package a specific version
+     * install  - executable to install the package for a specific version 
+     * version  - executable to retrieve the current installed version
+     * versions - text file or executable to retrieve the available versions
+
+available commands:
+   help                    print this help message
+   source                  print the packages source directory
+   target <home|system>    print the packages target directory
+   bundle <home|system>    print the packages bundle directory
+   action <cmd> [args]     executes and prints the command <cmd>
+   daemon <cmd> [args]     executes and prints the command <cmd> in background
+   info <pkg> <msg>        print a information message for package <pkg>
+   warn <pkg> <msg>        print a warning message message for package <pkg>
+   fatal <pkg> <msg>       print a (fatal) error message for package <pkg>
+
+package version commands:
+   identity [pkg]          print the identity of <pkg> 
+   version                 print the version of $SELF
+   version <pkg>           print the current installed version of <pkg>
+   versions [pkg]          lists all installable versions of <pkg>
+
+   get-major <version>     extract the major part of <version>
+   get-minor <version>     extract the minor part of <version>
+   get-patch <version>     extract the patch part of <version>
+
+   major <pkg>             commits a new major version for the package
+   minor <pkg>             commits a new minor version for the package
+   patch <pkg>             commits a new patch version for the package
+
+   changelog <version>     get the changelog for the respective version
+
+system commands:
+    platform               prints the platform name of the base system
+    upgrade                upgrades and potentially restarts the base system
+    init                   initializes the .rpk directory
+
+package query commands:
+   type <pkg>              shows the package type (system|user)
+   list                    lists all available packages in ${SELF_SOURCES}
+   system                  lists all system wide installable packages
+   user                    lists all user installable packages
+   show <pkg>              shows all info available regarding <pkg>
+
+package syncronisation commands:
+   accounts [pkg]          prints the accounts of the packages in ${SELF_SOURCES}
+   stage [pkgs]            stages the packages in ${SELF_SOURCES}
+   pull [pkg] [account]    pulls the package <pkg> from <account>
+   push [pkg] [account]    pushs the package <pkg> to <account>
+   sync [account] [pkg]    syncs from account <account> the package <pkg>
+   drop <account> [pkg]    drops all connections to account <account>
+
+package dependecy commands:
+   depends <pkg>           shows the dependencies of the package <pkg>
+   depends <pkg> <script>  executes the script to configure the dependency
+
+package bundle command:
+   bundles [pkg]           show the packaged versions of [pkg]
+   cleanup [pkg]           cleanups old bundled versions
+   package <pkg> [version] packages the package bundle for <pkg>
+
+package install and uninstall commands:
+   install <pkg> [version] releases the package version
+   delete <pkg>            deletes the package <pkg> from the direcory tree
+   update [pkg]            updates the package <pkg> in the directory tree
+
+package specific commands
+   command <pkg>           shows the commands of the package <pkg>
+   <pkg> <cmd> <arg>       executes the command <cmd> of package <pkg>
+ENDHELP
+	fi
+}
+
+#------------------------------------------------------------------------------
+command:source() {
+	if [ "$EUID" -eq 0 ]; then
+		echo "/usr/local/src"
+	else
+		echo "$HOME/.local/src"
+	fi
+}
+
+#------------------------------------------------------------------------------
+command:target() {
+	if [ "$1" = "system" ]; then
+		echo "/usr/local"
+	elif [ "$1" = "home" ]; then
+		echo "$HOME/.local"
+	elif [ "$1" = "user" ]; then
+		echo "$HOME/.local"
+	else
+		fatal "please specify either home or system"
+	fi
+}
+
+#------------------------------------------------------------------------------
+command:bundle() {
+	if [ "$1" = "system" ]; then
+		echo "/usr/local/pkg"
+	elif [ "$1" = "home" ]; then
+		echo "$HOME/.local/pkg"
+	elif [ "$1" = "user" ]; then
+		echo "$HOME/.local/pkg"
+	else
+		fatal "please specify either home or system"
+	fi
+}
+
+#------------------------------------------------------------------------------
+command:action() {
+	echo -e "$SELF - action: \033[90;m$@\033[0m" >&2
+	$@
+	return $?
+}
+
+#------------------------------------------------------------------------------
+command:daemon() {
+	echo -e "$SELF - action: \033[90;m$@ &\033[0m" >&2
+	$@ &
+	echo $!
+	return $?
+}
+
+#------------------------------------------------------------------------------
+command:root() {
+	test $EUID -eq 0
+}
+
+#------------------------------------------------------------------------------
+command:info() {
+	local PACKAGE=${1}; shift;
+	info "${PACKAGE} - $@"
+}
+
+#------------------------------------------------------------------------------
+command:warn() {
+	local PACKAGE=${1}; shift;
+	warn "${PACKAGE} - $@"
+}
+
+#------------------------------------------------------------------------------
+command:fatal() {
+	local PACKAGE=${1}; shift;
+	fatal "${PACKAGE} - $@"
+}
+
+#------------------------------------------------------------------------------
+command:worktree() {
+	local PACKAGE=${1};
+	if [ -z "$PACKAGE" ]; then
+		local WORKTREE=$(git rev-parse --show-toplevel 2> /dev/null)
+		if test -f $WORKTREE/.$SELF/$SELF-type; then
+			echo "$WORKTREE/.$SELF"
+		elif test -f $WORKTREE/$SELF-type; then
+			echo "$WORKTREE"
+		else
+			return 1
+		fi
+	elif test -f $SELF_SOURCES/$PACKAGE/.$SELF/$SELF-type; then
+		echo "$SELF_SOURCES/$PACKAGE/.$SELF"
+	elif test -f $SELF_SOURCES/$SELF-$PACKAGE/$SELF-type; then
+		echo "$SELF_SOURCES/$SELF-$PACKAGE"
+	else
+		local WORKTREE=$(git rev-parse --show-toplevel 2> /dev/null)
+		if [ -f "${WORKTREE}/.${SELF}/identity" ]; then
+			local IDENTITY=$(cat "${WORKTREE}/.${SELF}/identity" | sed 's/^rpk-//')
+		else
+			local IDENTITY=$(basename "${WORKTREE}" | sed 's/^rpk-//')
+		fi
+
+		if [ "$PACKAGE" = "$IDENTITY" ]; then
+			if test -f $WORKTREE/.$SELF/$SELF-type; then
+				echo "$WORKTREE/.$SELF"
+			elif test -f $WORKTREE/$SELF-type; then
+				echo "$WORKTREE"
+			else
+				return 1
+			fi
+		else
+			return 1
+		fi
+	fi
+	return 0
+}
+
+#------------------------------------------------------------------------------
+command:identity() {
+	local PACKAGE=$1
+	local WORKTREE=$(command:worktree $PACKAGE)
+	if [ ! -z "$WORKTREE" -a -d "$WORKTREE" ]; then
+		pushd $WORKTREE > /dev/null
+		local REPO_WORKTREE=$(git rev-parse --show-toplevel 2> /dev/null)
+		if [ -f "${REPO_WORKTREE}/.${SELF}/identity" ]; then
+			cat "${REPO_WORKTREE}/.${SELF}/identity" | sed 's/^rpk-//'
+		else
+			basename "${REPO_WORKTREE}" | sed 's/^rpk-//'
+		fi
+		popd > /dev/null
+	else
+		fatal "identity - package $PACKAGE has no worktree - please stage it"
+	fi
+}
+
+#------------------------------------------------------------------------------
+command:version() {
+	local PACKAGE=$1
+	local WORKTREE=$(command:worktree $PACKAGE)
+	if [ -z "$PACKAGE" ]; then
+		if [ -z "$WORKTREE" ]; then
+			if [ -f $SELF_DATA/scripts ]; then
+				cat $SELF_DATA/scripts
+			else
+				echo "$VERSION"
+			fi
+			return 0
+		else
+			local PACKAGE=$(command:identity)
+		fi
+	fi
+
+	if [ ! -z "$WORKTREE" -a -d "$WORKTREE" ]; then
+		pushd $WORKTREE > /dev/null
+		if [ -f $SELF_DATA/$PACKAGE ]; then
+			cat $SELF_DATA/$PACKAGE
+		elif [ -x version ]; then
+			./version | sort --unique --version-sort
+		fi
+		popd > /dev/null
+		return 0
+	else
+		return 1
+	fi
+}
+
+#------------------------------------------------------------------------------
+command:versions() {
+	local PACKAGE=$1
+	local WORKTREE=$(command:worktree $PACKAGE)
+	test -z "$WORKTREE" && fatal "versions - package $PACKAGE has no worktree - please stage it"
+	if [ -z "$PACKAGE" ]; then
+		test -z "$WORKTREE" || local PACKAGE=$(command:identity)
+	fi
+
+	if [ ! -z "$WORKTREE" -a -d "$WORKTREE" ]; then
+		pushd $WORKTREE > /dev/null
+		if [ -x ./versions ]; then
+			./versions | sort --unique --version-sort
+		elif [ -f ./versions ]; then
+			cat ./versions | sort --unique --version-sort
+		else
+			echo "0.0.0"
+		fi
+		popd > /dev/null
+	fi
+}
+
+#------------------------------------------------------------------------------
+command:get-major() {
+	local VERSION=$1
+	if [[ "$VERSION" =~ $SEMVER_REGEX ]]; then
+		echo "${BASH_REMATCH[1]}"
+	else
+		fatal "version $VERSION does not match the semver scheme 'X.Y.Z(-PRERELEASE)(+BUILD)'. See $SELF help"
+	fi
+	
+}
+
+#------------------------------------------------------------------------------
+command:get-minor() {
+	local VERSION=$1
+	if [[ "$VERSION" =~ $SEMVER_REGEX ]]; then
+		echo "${BASH_REMATCH[2]}"
+	else
+		fatal "version $VERSION does not match the semver scheme 'X.Y.Z(-PRERELEASE)(+BUILD)'. See $SELF help"
+	fi
+}
+
+#-----------------------------------------------------------------------------
+command:get-patch() {
+	local VERSION=$1
+	if [[ "$VERSION" =~ $SEMVER_REGEX ]]; then
+		echo "${BASH_REMATCH[3]}"
+	else
+		fatal "version $VERSION does not match the semver scheme 'X.Y.Z(-PRERELEASE)(+BUILD)'. See $SELF help"
+	fi
+}
+
+#-----------------------------------------------------------------------------
+command:major() {
+	local PACKAGE=${1};
+	local WORKTREE=$(command:worktree $PACKAGE)
+	test -z "$WORKTREE" && fatal "major - package $PACKAGE has no worktree - please stage it"
+	local VERSION=$(command:versions $PACKAGE | tail -1)
+	pushd $WORKTREE > /dev/null
+	if [[ "$VERSION" =~ $SEMVER_REGEX ]]; then
+		local MAJOR=${BASH_REMATCH[1]}
+		local MINOR=${BASH_REMATCH[2]}
+		local PATCH=${BASH_REMATCH[3]}
+		local NEW="$((MAJOR + 1)).0.0"
+	else
+		local NEW="1.0.0"
+	fi
+
+	echo "$NEW" | tee -a versions > /dev/null
+	git add versions && git commit -m "updated version to $NEW" versions
+	git tag -a v$NEW -m "Version $NEW release"
+	push:branches local
+	popd > /dev/null
+}
+
+#-----------------------------------------------------------------------------
+command:minor() {
+	local PACKAGE=${1};
+	local WORKTREE=$(command:worktree $PACKAGE)
+	test -z "$WORKTREE" && fatal "minor - package $PACKAGE has no worktree - please stage it"
+	local VERSION=$(command:versions $PACKAGE | tail -1)
+	pushd $WORKTREE > /dev/null
+	if [[ "$VERSION" =~ $SEMVER_REGEX ]]; then
+		local MAJOR=${BASH_REMATCH[1]}
+		local MINOR=${BASH_REMATCH[2]}
+		local PATCH=${BASH_REMATCH[3]}
+		local NEW="$MAJOR.$((MINOR + 1)).0"
+	else
+		local NEW="0.1.0"
+	fi
+		
+	echo "$NEW" | tee -a versions > /dev/null
+	git add versions && git commit -m "updated version to $NEW" versions
+	git tag -a v$NEW -m "Version $NEW release"
+	push:branches local
+	popd > /dev/null
+}
+
+#-----------------------------------------------------------------------------
+command:patch() {
+	local PACKAGE=${1};
+	local WORKTREE=$(command:worktree $PACKAGE)
+	test -z "$WORKTREE" && fatal "patch - package $PACKAGE has no worktree - please stage it"
+	local VERSION=$(command:versions $PACKAGE | tail -1)
+	pushd $WORKTREE > /dev/null
+	if [[ "$VERSION" =~ $SEMVER_REGEX ]]; then
+		local MAJOR=${BASH_REMATCH[1]}
+		local MINOR=${BASH_REMATCH[2]}
+		local PATCH=${BASH_REMATCH[3]}
+		local NEW="$MAJOR.$MINOR.$((PATCH + 1))"
+	else
+		local NEW="0.0.1"
+	fi
+
+	echo "$NEW" | tee -a versions > /dev/null
+	git add versions && git commit -m "updated version to $NEW" versions
+	git tag -a v$NEW -m "Version $NEW release"
+	push:branches local
+	popd > /dev/null
+}
+
+#------------------------------------------------------------------------------
+command:changelog() {
+	local PACKAGE=${1};
+	local WORKTREE=$(command:worktree $PACKAGE)
+	test -z "$WORKTREE" && fatal "changelog - package $PACKAGE has no worktree - please stage it"
+	local VERSION=${2};
+	if [ -z "$VERSION" ]; then
+		local VERSION=$(command:versions $PACKAGE | tail -1)
+		local PREV=$(command:versions | awk -v target="$VERSION" '$0==target{print prev;exit}{prev=$0}')
+	else
+		local PREV=$(command:versions | awk -v target="$VERSION" '$0==target{print prev;exit}{prev=$0}')
+	fi
+	pushd $WORKTREE > /dev/null
+	if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+		if [ -z "$PREV" ]; then 
+			local ENTRIES=$(git log -n 1000 v$VERSION --no-merges --pretty=format:"%s" --abbrev-commit)
+		else
+			local ENTRIES=$(git log -n 1000 v$PREV..v$VERSION --no-merges --pretty=format:"%s" --abbrev-commit)
+		fi
+		# GNU ChangeLog header format
+		local HEADER="$(date '+%Y-%m-%d')  $(git config user.name)  <$(git config user.email)>
+
+  * ${VERSION}:"
+
+		# New section content
+		local CONTENT=$(printf '%s\n\n' "$ENTRIES" | sed 's/^/     /')
+		echo "$HEADER"
+		echo "$CONTENT"
+	else
+		fatal "version $VERSION has no valid tag"
+	fi
+	popd > /dev/null
+}
+
+#------------------------------------------------------------------------------
+command:platform() {
+	case $(uname -s) in
+		Linux*)
+			if test -f /etc/os-release; then
+				cat /etc/os-release | grep "^ID=" | sed "s/^ID=//g"
+			elif test -e /etc/synoinfo.conf; then
+				echo "synology"
+			else
+				echo "linux"
+			fi
+			;;
+		Darwin*)
+			echo "macos"
+			;;
+		*)
+			echo "unkown"
+			;;
+	esac
+}
+
+#------------------------------------------------------------------------------
+command:upgrade() {
+	test $EUID -eq 0 -o -f /etc/sudoers.d/$USER || fatal "the account has no admin rights" -1
+	case $(command:platform) in
+		alpine)
+			;;
+		debian|ubuntu|pureos)
+			command:action sudo apt-get update
+			which apt-show-versions > /dev/null || command:action apt-get install apt-show-versions --yes
+			which stow > /dev/null || command:action apt-get install stow --yes
+			command:action apt-get upgrade --yes
+			if [ -f /var/run/reboot-required ]; then
+				info "reboot required - restarting system"
+				sudo reboot
+			fi
+			command:action apt-get autoremove --yes --quiet
+			;;
+		macos)
+			which stow || command:action port install stow
+			command:action port selfupdate
+			command:action port upgrade outdated
+			;;
+	esac
+}
+
+#------------------------------------------------------------------------------
+command:init() {
+	local WORKTREE=$(git rev-parse --show-toplevel 2> /dev/null)
+	test -z "$WORKTREE" && fatal "we are not in a git repository"
+	pushd $WORKTREE > /dev/null
+	mkdir -p $WORKTREE/.rpk/depends
+
+	if [ ! -f $WORKTREE/.rpk/rpk-type ]; then
+		echo "user" > $WORKTREE/.rpk/rpk-type
+	fi
+
+	if [ ! -f $WORKTREE/.rpk/versions ]; then
+		echo "0.0.0" > $WORKTREE/.rpk/versions
+	fi
+
+	if [ ! -f $WORKTREE/.rpk/package ]; then
+		cat > $WORKTREE/.rpk/package <<'EOF'
+#!/bin/bash
+VERSION=$1
+echo "Packaging version $VERSION"
+EOF
+		chmod +x $WORKTREE/.rpk/package
+	fi
+
+	if [ ! -f $WORKTREE/.rpk/install ]; then
+		cat > $WORKTREE/.rpk/install <<'EOF'
+#!/bin/bash
+VERSION=$1
+echo "Installing version $VERSION"
+EOF
+		chmod +x $WORKTREE/.rpk/install
+	fi
+
+	git add .rpk && git commit -m "initialized .rpk"
+        push:branches local
+	popd > /dev/null
+}
+
+#------------------------------------------------------------------------------
+command:type() {
+	local PACKAGE=${1};
+	local WORKTREE=$(command:worktree $PACKAGE)
+	test -z "$WORKTREE" && fatal "type - package $PACKAGE has no worktree - please stage it"
+	cat $WORKTREE/$SELF-type
+}
+
+#------------------------------------------------------------------------------
+command:list() {
+	{ for REPO in $(ls -1 $(command:source) 2>/dev/null); do
+		if [[ $REPO =~ ^"$SELF-" ]]; then
+			if [ -f "$SELF_SOURCES/$REPO/$SELF-type" ]; then
+				echo "$REPO" | sed "s/$SELF-//g"
+			fi
+		elif [ -f "$SELF_SOURCES/$REPO/.$SELF/$SELF-type" ]; then
+			echo "$REPO"
+		fi
+	done 
+
+	for REPO in $(rpk:bare); do
+		if [[ $REPO =~ ^"$SELF-" ]]; then
+			if [[ ! -d $SELF_SOURCES/$REPO ]]; then
+				echo "$REPO" | sed "s/$SELF-//g"
+			fi
+		fi
+	done } | sed -z '$ s/^\n$//'
+}
+
+#------------------------------------------------------------------------------
+command:system() {
+	for PACKAGE in $(command:list); do
+		test "$(command:type $PACKAGE)" = "system" && echo -e "$PACKAGE"
+	done | sed -z '$ s/^\n$//'
+}
+
+#------------------------------------------------------------------------------
+command:user() {
+	for PACKAGE in $(command:list); do
+		test "$(command:type $PACKAGE)" = "user" && echo -e "$PACKAGE"
+	done | sed -z '$ s/^\n$//'
+}
+
+#------------------------------------------------------------------------------
+command:show() {
+	local PACKAGE=${1}
+	local WORKTREE=$(command:worktree $PACKAGE)
+	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
+		for PACKAGE in $(command:list); do
+			command:show $PACKAGE
+			echo -e ""
+		done
+		return 0
+	else
+		test -z "$WORKTREE" && fatal "show - package $PACKAGE has no worktree - please stage it"
+		pushd $WORKTREE > /dev/null
+		local PACKAGE=$(command:identity)
+		popd > /dev/null
+		echo -e "Name:\t\t$PACKAGE"
+		echo -e "Worktree:\t$WORKTREE"
+		echo -e "Depends:\t$(command:depends $PACKAGE | tr '\n' ';' | sed 's/;$//')"
+		echo -e "Versions:\t$(command:versions $PACKAGE | tr '\n' ';' | sed 's/;$//')"
+		echo -e "Version:\t$(command:version $PACKAGE)"
+		echo -e "Type:\t\t$(command:type $PACKAGE)"
+	fi
+}
+
+#------------------------------------------------------------------------------
+command:accounts() {
+	local PACKAGE=${1};
+	local WORKTREE=$(command:worktree $PACKAGE)
+	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
+		for PACKAGE in $(command:list); do
+			command:accounts $PACKAGE
+		done | sort -u
+	else
+		test -z "$WORKTREE" && fatal "accounts - package $PACKAGE has no worktree - please stage it"
+		pushd $WORKTREE > /dev/null
+		git remote | grep @
+		popd > /dev/null
+	fi
+}
+
+#------------------------------------------------------------------------------
+command:stage() {
+	if [ "$#" -eq 0 ]; then
+		command:stage $(command:list)
+	else
+		for PACKAGE in $@; do
+			local WORKTREE=$(command:worktree $PACKAGE)
+			if [ -z "$WORKTREE" ]; then
+				if [ -d "$SELF_DATA/$PACKAGE" ]; then
+					info "$PACKAGE - staging local package repository"
+					rpk:stage-repo "$PACKAGE"
+				elif [ -d "$SELF_DATA/$SELF-$PACKAGE" ]; then
+					info "$PACKAGE - staging local package repository"
+					rpk:stage-repo "$SELF-$PACKAGE"
+				else
+					fatal "$PACKAGE - no bare repository found"
+				fi
+			else
+				info "$PACKAGE - updating local package repository"
+				pushd "$WORKTREE" > /dev/null
+				git pull
+				popd > /dev/null
+			fi
+		done
+	fi
+}
+
+#------------------------------------------------------------------------------
+command:pull() {
+	local PACKAGE=${1}
+	local ACCOUNT=${2}
+	local WORKTREE=$(command:worktree $PACKAGE)
+	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
+		for PACKAGE in $(command:list); do
+			command:pull $PACKAGE
+		done
+	else
+		test -z "$WORKTREE" && fatal "pull - package $PACKAGE has no worktree - please stage it"
+		pushd "$WORKTREE" > /dev/null
+		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
+		if [ -z "$ACCOUNT" ]; then
+			git fetch origin
+			git merge origin/$(git rev-parse --abbrev-ref HEAD)
+		else
+			git fetch "$ACCOUNT"
+			git merge "$ACCOUNT/$(git rev-parse --abbrev-ref HEAD)"
+		fi
+		popd > /dev/null
+	fi
+}
+
+#------------------------------------------------------------------------------
+command:push() {
+	local PACKAGE=${1}
+	local ACCOUNT=${2}
+	local WORKTREE=$(command:worktree $PACKAGE)
+	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
+		for PACKAGE in $(command:list); do
+			command:push $PACKAGE
+		done
+	else
+		test -z "$WORKTREE" && fatal "push - package $PACKAGE has no worktree - please stage it"
+		pushd "$WORKTREE" > /dev/null
+		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
+		if [ -z "$ACCOUNT" ]; then
+			git push -u origin HEAD
+		else
+			git push -u "$ACCOUNT" HEAD
+		fi
+		popd > /dev/null
+	fi
+}
+
+#------------------------------------------------------------------------------
+push:branches() {
+	local REMOTE=$1
+	if [[ "$REMOTE" == *"@"* ]]; then
+		local GIT_RECEIVE_PACK=$(ssh $REMOTE which git-receive-pack)
+		if [ -z "$GIT_RECEIVE_PACK" ]; then
+			if ssh $REMOTE test -x /usr/local/bin/git-receive-pack; then
+				local GIT_RECEIVE_PACK=/usr/local/bin/git-receive-pack
+			else
+				local GIT_RECEIVE_PACK=git-receive-pack
+			fi
+		fi
+	else
+		local GIT_RECEIVE_PACK=git-receive-pack
+	fi
+        
+	if [ -n "$SELF_QUIET" ]; then
+		git push -q --receive-pack=$GIT_RECEIVE_PACK $REMOTE --all  > /dev/nul
+		git push -q --receive-pack=$GIT_RECEIVE_PACK $REMOTE --tags > /dev/null
+	else
+		git push --receive-pack=$GIT_RECEIVE_PACK $REMOTE --all
+		git push --receive-pack=$GIT_RECEIVE_PACK $REMOTE --tags
+	fi
+
+	local BRANCHES=$(git branch -r -l "$REMOTE/*" | sed "s/.*$REMOTE\///g")
+	for BRANCH in $BRANCHES; do
+		if [ -z "$(git branch | grep $BRANCH)" ]; then
+			if [ -n "$SELF_QUIET" ]; then
+				git push -q --receive-pack=$GIT_RECEIVE_PACK $REMOTE --delete $BRANCH > /dev/null
+			else
+				git push --receive-pack=$GIT_RECEIVE_PACK $REMOTE --delete $BRANCH
+			fi
+			git branch -rd $REMOTE/$BRANCH
+		fi
+	done
+}
+
+#------------------------------------------------------------------------------
+command:sync() {
+	local ACCOUNT=${1}
+	local PACKAGE=${2}
+	local ACCOUNT_CONFIG=$(rpk:account-config)
+
+	if [ -z "$ACCOUNT" ]; then
+		for REPO in $(ls -1 "$SELF_SOURCES" 2>/dev/null); do
+			if [[ "$REPO" =~ ^"$SELF-" ]]; then
+				if [ ! -d "$SELF_SOURCES/$REPO" ]; then
+					rpk:stage-repo "$REPO"
+				fi
+			fi
+		done
+
+		for ACCOUNT in $(rpk:ssh-known-accounts); do
+			command:sync "$ACCOUNT"
+		done
+	elif [ -d "$ACCOUNT_CONFIG/ssh/${ACCOUNT}.pub" ]; then
+		local WORKTREE=$(command:worktree $PACKAGE)
+		if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
+			for PACKAGE in $(ssh "$ACCOUNT" "$SELF" list 2>/dev/null); do
+				command:sync "$ACCOUNT" "$PACKAGE"
+			done
+		elif [ -z "$WORKTREE" ]; then
+			if ssh "$ACCOUNT" "$SELF" bare 2>/dev/null | grep -q "^$SELF-$PACKAGE$"; then
+				info "$PACKAGE - staging from remote account"
+				git clone "$ACCOUNT:$SELF_SOURCES/$SELF-$PACKAGE" "$SELF_SOURCES/$SELF-$PACKAGE" 2>/dev/null || \
+				ssh "$ACCOUNT" "git --git-dir=$SELF_DATA/$SELF-$PACKAGE" archive HEAD | tar -x -C "$SELF_SOURCES"
+			elif ssh "$ACCOUNT" "$SELF" bare 2>/dev/null | grep -q "^$PACKAGE$"; then
+				info "$PACKAGE - staging from remote account"
+				git clone "$ACCOUNT:$SELF_DATA/$PACKAGE" "$SELF_SOURCES/$PACKAGE" 2>/dev/null || \
+				ssh "$ACCOUNT" "git --git-dir=$SELF_DATA/$PACKAGE" archive HEAD | tar -x -C "$SELF_SOURCES"
+			else
+				fatal "repository for package $PACKAGE is not available at $ACCOUNT"
+			fi
+		elif [ -d "$WORKTREE" ]; then
+			pushd "$WORKTREE" > /dev/null
+			git stash && git clean -fd
+			git fetch origin
+			git merge origin/$(git rev-parse --abbrev-ref HEAD)
+			git push -u origin HEAD
+			git fetch "$ACCOUNT"
+			git merge "$ACCOUNT/$(git rev-parse --abbrev-ref HEAD)"
+			git push -u "$ACCOUNT" HEAD
+			popd > /dev/null
+		else
+			fatal "$WORKTREE is not a directory"
+		fi
+	else
+		fatal "unknown account $ACCOUNT"
+	fi
+}
+
+#------------------------------------------------------------------------------
+command:drop() {
+	local ACCOUNT=${1}; test -z "$ACCOUNT" && fatal "please specify an account"
+	local PACKAGE=${2}
+	local WORKTREE=$(command:worktree $PACKAGE)
+	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
+		for PACKAGE in $(command:list); do
+			command:drop $ACCOUNT $PACKAGE
+		done
+	else
+		test -z "$WORKTREE" && fatal "drop - package $PACKAGE has no worktree - please stage it"
+		pushd $WORKTREE > /dev/null
+		if git remote | grep -q $ACCOUNT; then
+			git remote remove $ACCOUNT
+		fi
+		popd > /dev/null
+	fi
+}
+
+#------------------------------------------------------------------------------
+command:depends() {
+	local PACKAGE=${1};
+	local WORKTREE=$(command:worktree $PACKAGE)
+	test -z "$WORKTREE" && fatal "depends - package $PACKAGE has no worktree - please stage it"
+	local SCRIPT=${2}
+	if [ -z "$SCRIPT" ]; then
+		if [ -d $WORKTREE/depends ]; then
+			ls -1 $WORKTREE/depends
+		fi
+	elif [ -x $WORKTREE/depends/$SCRIPT ]; then
+		pushd $WORKTREE > /dev/null
+		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
+		if [ "$(command:type $PACKAGE)" = "system" ]; then
+			test $EUID -eq 0 || fatal "system packages dependencies have to be run as root user"
+		fi
+		
+		info "$PACKAGE - installing dependency $SCRIPT"
+		./depends/$SCRIPT
+		popd > /dev/null
+	fi
+}
+
+#------------------------------------------------------------------------------
+command:bundles() {
+	local PACKAGE=${1}
+	local WORKTREE=$(command:worktree $PACKAGE)
+	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
+		for PACKAGE in $(command:list); do
+			command:bundles $PACKAGE
+		done | sed -z '$ s/^\n$//'
+	else
+		test -z "$WORKTREE" && fatal "bundles - package $PACKAGE has no worktree - please stage it"
+		pushd $WORKTREE > /dev/null
+		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
+		ls -1 $(command:bundle $(command:type $PACKAGE))   | grep "^$PACKAGE-" | sed -z '$ s/^\n$//'
+		popd > /dev/null
+	fi
+}
+
+#------------------------------------------------------------------------------
+command:cleanup() {
+	local PACKAGE=${1}
+	local WORKTREE=$(command:worktree $PACKAGE)
+	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
+		for PACKAGE in $(command:list); do
+			command:cleanup $PACKAGE
+		done
+	else
+		test -z "$WORKTREE" && fatal "cleanup - package $PACKAGE has no worktree - please stage it"
+		pushd $WORKTREE > /dev/null
+		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
+		popd > /dev/null
+		local CURRENT=$(command:version $PACKAGE)
+		for PACKAGE_VERSION in $(command:bundles | grep "^$PACKAGE-"); do
+			if [[ ! ${PACKAGE_VERSION} =~ ${CURRENT}$ ]]; then
+				info "removing old version ${PACKAGE_VERSION}"
+				rm -rf $(command:bundle home)/${PACKAGE_VERSION}
+				if [ $EUID -eq 0 ]; then
+					rm -rf $(command:bundle system)/${PACKAGE_VERSION}
+				fi
+			fi
+		done
+	fi
+}
+
+#------------------------------------------------------------------------------
+command:package() {
+	local PACKAGE=$1
+	local VERSION=$2
+	local WORKTREE=$(command:worktree $PACKAGE)
+	test -z "$WORKTREE" && fatal "package - package $PACKAGE has no worktree - please stage it"
+
+	pushd $WORKTREE > /dev/null
+	test -z "$PACKAGE" && local PACKAGE=$(command:identity)
+	test -z "$VERSION" && local VERSION=$(command:versions | tail -1)
+
+	if [ -x ./package ]; then
+		if [ "$(command:type)" = "system" ]; then
+			if [ $EUID -eq 0 ]; then
+				local PREFIX=$(command:bundle system)/$PACKAGE-$VERSION
+			else
+				fatal "system packages have to be packages as root user"
+			fi
+		elif [ "$(command:type)" = "home" ]; then
+			local PREFIX=$(command:bundle home)/$PACKAGE-$VERSION
+		elif [ "$(command:type)" = "user" ]; then
+			local PREFIX=$(command:bundle user)/$PACKAGE-$VERSION
+		else
+			fatal "unkown $SELF type of package $PACKAGE"
+		fi
+		
+		if [ -d $PREFIX ]; then
+			if [ ! -n "$SELF_FORCE" ]; then
+				info "package $PACKAGE: already packaged in $PREFIX"
+				return 0
+			fi
+		fi
+
+		info "$PACKAGE - installing dependencies..."
+		for SCRIPT in $(command:depends $PACKAGE); do
+			command:depends $PACKAGE $SCRIPT
+		done
+	
+		info "$PACKAGE - packaging into $PREFIX"
+		local OLDUMASK=$(umask); test $EUID -eq 0 && command:action umask 022
+		if ./package $VERSION; then
+			command:action umask $OLDUMASK; info  "$PACKAGE - package script succesfull"
+		else
+			command:action umask $OLDUMASK; fatal "$PACKAGE - package script failure"
+		fi
+	fi
+	popd > /dev/null
+}
+
+help:package() {
+	cat >&2 <<ENDHELP
+usage: $SELF <options> package <package> <version>
+
+Packages the package under the bundle directory as <PACKAGE>-<VERSION>. The 
+package is basically a git repository located at $SELF_SOURCES
+which contains a package script.
+
+The installation in the patch of the user or the system is typically done with 
+the install command. Please note that not all packages have a package scripts. 
+This is specially true for packages which simply wrap an existing system package, 
+like the rpk package tor. Other packages which are installed from the developer
+source git repository typically have a package and an install script (e.g. scripts).
+ENDHELP
+}
+
+#------------------------------------------------------------------------------
+command:install() {
+	local PACKAGE=$1;
+	local VERSION=$2;
+	local WORKTREE=$(command:worktree $PACKAGE)
+	test -z "$WORKTREE" && fatal "install: package $PACKAGE has no worktree - please stage it"
+
+	pushd $WORKTREE > /dev/null
+	test -z "$PACKAGE" && local PACKAGE=$(command:identity)
+	test -z "$VERSION" && local VERSION=$(command:versions | tail -1)
+
+	local PACKAGE_TYPE=$(command:type $PACKAGE)
+	if [ "$PACKAGE_TYPE" = "system" ]; then
+		test $EUID -eq 0 || fatal "system packages have to be installed as root user"
+	fi
+
+	if [ -x ./package ]; then
+		local PREFIX=$(command:bundle $PACKAGE_TYPE)/$PACKAGE-$VERSION
+		if [ ! -d $PREFIX ]; then
+			warn "install $PACKAGE: running $SELF package $PACKAGE $VERSION first"
+			command:package $PACKAGE $VERSION
+		fi
+	fi
+
+	if [ -x ./package ]; then
+		local HOME_TARGET=$(command:target home)
+		mkdir -p $HOME_TARGET/bin
+		mkdir -p $HOME_TARGET/etc
+		mkdir -p $HOME_TARGET/lib
+		mkdir -p $HOME_TARGET/libexec
+		mkdir -p $HOME_TARGET/share
+		mkdir -p $HOME_TARGET/var
+        
+		if [ $EUID -eq 0 ]; then
+			local SYSTEM_TARGET=$(command:target system)
+			mkdir -p $SYSTEM_TARGET/bin
+			mkdir -p $SYSTEM_TARGET/etc
+			mkdir -p $SYSTEM_TARGET/lib
+			mkdir -p $SYSTEM_TARGET/libexec
+			mkdir -p $SYSTEM_TARGET/share
+			mkdir -p $SYSTEM_TARGET/var
+		fi
+
+		for BUNDLED_PACKAGE in $(command:bundles $PACKAGE); do
+			pushd $(command:bundle $PACKAGE_TYPE) > /dev/null
+			command:action $STOW --target=$(command:target $PACKAGE_TYPE) --delete $BUNDLED_PACKAGE
+			popd > /dev/null
+		done
+
+		pushd $(command:bundle $PACKAGE_TYPE) > /dev/null
+		command:action $STOW --target=$(command:target $PACKAGE_TYPE) $PACKAGE-$VERSION
+		popd > /dev/null
+		mkdir -p $SELF_DATA && echo "$VERSION" | tee $SELF_DATA/$PACKAGE > /dev/null
+	fi
+
+	if [ -x ./install ]; then
+		if [ "$(command:type)" = "system" ]; then
+			test $EUID -eq 0 || fatal "system packages have to be installed as root user"
+		fi
+
+		local OLDUMASK=$(umask); test $EUID -eq 0 && umask 022
+		if ./install $VERSION; then
+			command:action umask $OLDUMASK; info  "$PACKAGE - install script succesfull"
+		else
+			command:action umask $OLDUMASK; fatal "$PACKAGE - install script failure"
+		fi
+	fi
+	popd > /dev/null
+}
+
+help:install() {
+	cat >&2 <<ENDHELP
+usage: $SELF <options> install <package>
+
+Installs the package. The package is basically a git repository located at $SELF_SOURCES
+which contains an install script.
+ENDHELP
+}
+
+#------------------------------------------------------------------------------
+command:delete() {
+	local PACKAGE=${1};
+	local WORKTREE=$(command:worktree $PACKAGE)
+	test -z "$WORKTREE" && fatal "delete - package $PACKAGE has no worktree - please stage it"
+
+	pushd $WORKTREE > /dev/null
+	for BUNDLED_PACKAGE in $(command:bundles $PACKAGE); do
+		command:action $STOW --target=$(command:target $(command:type $PACKAGE)) --delete $BUNDLED_PACKAGE
+	done
+	rm -f $SELF_DATA/$PACKAGE
+
+	if [ -x ./delete ]; then
+		if ./delete; then
+			info  "$PACKAGE - delete script succesfull"
+		else
+			fatal "$PACKAGE - delete script failure"
+		fi
+		popd > /dev/null
+	fi
+	popd > /dev/null
+}
+
+#------------------------------------------------------------------------------
+command:update() {
+	local PACKAGE=${1}
+	if [ -z $PACKAGE ]; then
+		local WORKTREE=$(command:worktree)
+		if [ -z "$WORKTREE" ]; then
+			if [ "$EUID" -eq 0 ]; then
+				info "updating all user and system packages"
+				for PACKAGE in $(command:list); do
+					command:stage $PACKAGE
+					if $(command:version $PACKAGE > /dev/null); then
+						command:update $PACKAGE
+					fi
+				done
+			else
+				info "updating all user packages"
+				for PACKAGE in $(command:user); do
+					command:stage $PACKAGE
+					if $(command:version $PACKAGE > /dev/null); then
+						command:update $PACKAGE
+					fi
+				done
+			fi
+			return 0
+		else
+			pushd $WORKTREE > /dev/null
+			local PACKAGE=$(command:identity)
+			popd > /dev/null
+		fi
+	else
+		local WORKTREE=$(command:worktree $PACKAGE)
+		test -z "$WORKTREE" && fatal "update - package $PACKAGE has no worktree - please stage it"
+	fi
+		
+	pushd $WORKTREE > /dev/null
+	if $(command:version $PACKAGE > /dev/null); then
+                command:stage $PACKAGE
+		local VERSION=$(command:versions $PACKAGE | tail -1)
+		command:install $PACKAGE $VERSION
+	else
+		warn "package $PACKAGE is not installed"
+	fi
+	popd > /dev/null
+}
+
+#------------------------------------------------------------------------------
+command:command() {
+	local PACKAGE=${1};
+	local WORKTREE=$(command:worktree $PACKAGE)
+	test -z "$WORKTREE" && fatal "command - package $PACKAGE has no worktree - please stage it"
+	local COMMAND=${2}
+	
+	if [ -z "$COMMAND" ]; then
+		if [ -d $WORKTREE/command ]; then
+			ls -1 $WORKTREE/command
+		fi
+        
+	elif [ -x $WORKTREE/command/$COMMAND ]; then
+		pushd $WORKTREE > /dev/null
+		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
+		./command/$COMMAND ${@:3}
+		popd > /dev/null
+	else
+		fatal "$PACKAGE - unknow package command ${@:2}"
+	fi
+}
+
+#------------------------------------------------------------------------------
+# Command-line processing
+if [[ $# == 0 ]]; then
+	command:help
+	exit 0
+fi
+
+# If this is a builtin command, execute it, otherwise fall through
+if has command $1; then
+	if [ -z "$STOW" ]; then
+		if [ ! $1 = "upgrade" ]; then
+			fatal "stow command not found - install trough $SELF upgrade"
+		fi
+	fi
+	
+	debug "executing command:$1 ${@:2}"
+	command:$1 "${@:2}" # array slice skipping first element
+	exit $?
+elif command:list | grep --quiet ^$1$; then
+	command:command $1 "${@:2}"
+else
+	fatal "unkown command: ${@}"
+fi

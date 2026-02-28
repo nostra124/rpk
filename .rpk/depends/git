@@ -1,0 +1,9 @@
+#!/bin/bash
+
+if [ -x /opt/local/bin/port ]; then
+	which git > /dev/null || rpk action sudo port install git
+elif [ -x /usr/bin/apt-get ]; then
+	which git > /dev/null || rpk action sudo apt-get --yes install git
+elif [ -x /bin/opkg ]; then
+	which git > /dev/null || rpk action opkg install git
+fi

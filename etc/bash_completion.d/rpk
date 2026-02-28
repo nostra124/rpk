@@ -1,0 +1,54 @@
+# bash completion for rpk
+
+_rpk_complete() {
+	COMPREPLY=()
+	local cur="${COMP_WORDS[COMP_CWORD]}"
+	local commands="help source target bundle action daemon info warn fatal identity version versions get-major get-minor get-patch major minor patch changelog platform upgrade init type list system user show accounts stage pull push sync drop depends bundles cleanup package install delete update command"
+
+	if [[ $COMP_CWORD -gt 1 ]]; then
+		local lastarg="${COMP_WORDS[$COMP_CWORD-1]}"
+		local prevarg="${COMP_WORDS[COMP_CWORD-2]}"
+		case "${COMP_WORDS[1]}" in
+			target|bundle)
+				COMPREPLY+=($(compgen -W "home system user" -- ${cur}))
+				;;
+			identity|version|versions|type|show|accounts|stage|pull|push|sync|bundles|cleanup|package|install|delete|update)
+				COMPREPLY+=($(compgen -W "$(rpk list 2>/dev/null)" -- ${cur}))
+				;;
+			info|warn|fatal)
+				COMPREPLY+=($(compgen -W "$(rpk list 2>/dev/null)" -- ${cur}))
+				;;
+			major|minor|patch)
+				COMPREPLY+=($(compgen -W "$(rpk list 2>/dev/null)" -- ${cur}))
+				;;
+			depends)
+				if [[ $COMP_CWORD -eq 3 ]]; then
+					COMPREPLY+=($(compgen -W "$(rpk list 2>/dev/null)" -- ${cur}))
+				elif [[ $COMP_CWORD -eq 4 ]]; then
+					local pkg="${COMP_WORDS[2]}"
+					local worktree=$(rpk worktree "$pkg" 2>/dev/null)
+					if [[ -d "$worktree/depends" ]]; then
+						COMPREPLY+=($(compgen -W "$(ls -1 "$worktree/depends" 2>/dev/null)" -- ${cur}))
+					fi
+				fi
+				;;
+			command)
+				COMPREPLY+=($(compgen -W "$(rpk list 2>/dev/null)" -- ${cur}))
+				;;
+			get-major|get-minor|get-patch|changelog)
+				;;
+			drop)
+				;;
+			init|platform|upgrade|list|system|user)
+				;;
+			action|daemon)
+				;;
+			*)
+				;;
+		esac
+	else
+		COMPREPLY+=($(compgen -W "${commands}" -- ${cur}))
+	fi
+}
+
+complete -o filenames -F _rpk_complete rpk

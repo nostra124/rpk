@@ -1,0 +1,30 @@
+#!/bin/bash
+
+function die() {
+	echo "$@"
+	exit 100
+}
+
+SOURCE=$(git rev-parse --show-toplevel 2> /dev/null)
+PACKAGE=$($SOURCE/bin/rpk identity)
+VERSION=$1
+
+test -z "$VERSION" && VERSION=$($SOURCE/bin/rpk versions | tail -1)
+
+TARGET=$($SOURCE/bin/rpk bundle home)/$PACKAGE-$VERSION
+
+BRANCH=$(git branch --show-current)
+trap "git checkout $BRANCH --force" EXIT
+
+if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+	git config advice.detachedHead false
+	git checkout v$VERSION
+fi
+
+install -b $SOURCE/etc/bash_logout  $HOME/.bash_logout
+install -b $SOURCE/etc/bash_profile $HOME/.bash_profile
+install -b $SOURCE/etc/bashrc       $HOME/.bashrc
+install -b $SOURCE/etc/inputrc      $HOME/.inputrc
+install -b $SOURCE/etc/profile      $HOME/.profile
+
+git checkout $BRANCH --force
