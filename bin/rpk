@@ -841,18 +841,26 @@ command:pull() {
 	local WORKTREE=$(command:worktree "$PACKAGE")
 	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
 		for PACKAGE in $(command:list); do
-			command:pull "$PACKAGE"
+			command:pull "$PACKAGE" "$ACCOUNT"
 		done
 	else
 		test -z "$WORKTREE" && fatal "pull - package $PACKAGE has no worktree - please stage it"
 		pushd "$WORKTREE" > /dev/null
 		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
+		
+		local BRANCH=$(git rev-parse --abbrev-ref HEAD)
+		
 		if [ -z "$ACCOUNT" ]; then
-			git fetch origin || { popd > /dev/null; fatal "failed to fetch from origin"; }
-			git merge "origin/$(git rev-parse --abbrev-ref HEAD)" || { popd > /dev/null; fatal "failed to merge from origin"; }
+			git fetch local || { popd > /dev/null; fatal "failed to fetch from local"; }
+			git merge "local/$BRANCH" || { popd > /dev/null; fatal "failed to merge from local"; }
+			for REMOTE in $(git remote | grep '@'); do
+				info "pulling from $REMOTE"
+				git fetch "$REMOTE" || warn "failed to fetch from $REMOTE"
+				git merge "$REMOTE/$BRANCH" || warn "failed to merge from $REMOTE"
+			done
 		else
 			git fetch "$ACCOUNT" || { popd > /dev/null; fatal "failed to fetch from $ACCOUNT"; }
-			git merge "$ACCOUNT/$(git rev-parse --abbrev-ref HEAD)" || { popd > /dev/null; fatal "failed to merge from $ACCOUNT"; }
+			git merge "$ACCOUNT/$BRANCH" || { popd > /dev/null; fatal "failed to merge from $ACCOUNT"; }
 		fi
 		popd > /dev/null
 	fi
@@ -867,14 +875,19 @@ command:push() {
 	local WORKTREE=$(command:worktree "$PACKAGE")
 	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
 		for PACKAGE in $(command:list); do
-			command:push "$PACKAGE"
+			command:push "$PACKAGE" "$ACCOUNT"
 		done
 	else
 		test -z "$WORKTREE" && fatal "push - package $PACKAGE has no worktree - please stage it"
 		pushd "$WORKTREE" > /dev/null
 		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
+		
 		if [ -z "$ACCOUNT" ]; then
 			git push -u local HEAD || { popd > /dev/null; fatal "failed to push to local"; }
+			for REMOTE in $(git remote | grep '@'); do
+				info "pushing to $REMOTE"
+				git push -u "$REMOTE" HEAD || warn "failed to push to $REMOTE"
+			done
 		else
 			git push -u "$ACCOUNT" HEAD || { popd > /dev/null; fatal "failed to push to $ACCOUNT"; }
 		fi
