@@ -117,20 +117,23 @@ rpk:stage-repo() {
 	local REPO=$1
 	local WORKTREE="$SELF_SOURCES/$REPO"
 	local BARE_REPO="$SELF_REPO/$REPO"
+	debug "rpk:stage-repo: REPO=$REPO WORKTREE=$WORKTREE BARE_REPO=$BARE_REPO"
 
 	[ -d "$WORKTREE" -a ! -d "$WORKTREE/.git" ] && rm -rf "$WORKTREE"
 
 	if [ -d "$WORKTREE" ]; then
 		pushd "$WORKTREE" > /dev/null
-		git remote remove local 2>/dev/null
-		git remote add local "$BARE_REPO" 2>/dev/null
+		git remote remove local 2>/dev/null || true
+		git remote add local "$BARE_REPO" 2>/dev/null || true
 		popd > /dev/null
 	elif [ -d "$BARE_REPO" ]; then
-		if ! git clone "$BARE_REPO" "$WORKTREE" 2>/dev/null; then
+		debug "cloning $BARE_REPO to $WORKTREE"
+		if ! git clone "$BARE_REPO" "$WORKTREE" 2>&1; then
 			fatal "failed to clone repository $BARE_REPO"
 		fi
 		pushd "$WORKTREE" > /dev/null
-		git remote remove local
+		git remote remove local 2>/dev/null || true
+		git remote add local "$BARE_REPO" 2>/dev/null || true
 		popd > /dev/null
 	else
 		return 1
@@ -352,9 +355,9 @@ command:worktree() {
 		else
 			return 1
 		fi
-	elif test -f $SELF_SOURCES/$PACKAGE/.$SELF/$SELF-type; then
-		echo "$SELF_SOURCES/$PACKAGE/.$SELF"
-	elif test -f $SELF_SOURCES/$SELF-$PACKAGE/$SELF-type; then
+	elif test -f "$SELF_SOURCES/$PACKAGE/.rpk/rpk-type"; then
+		echo "$SELF_SOURCES/$PACKAGE"
+	elif test -f "$SELF_SOURCES/$SELF-$PACKAGE/.rpk/rpk-type"; then
 		echo "$SELF_SOURCES/$SELF-$PACKAGE"
 	else
 		local WORKTREE=$(git rev-parse --show-toplevel 2> /dev/null)
@@ -819,6 +822,9 @@ command:stage() {
 			else
 				info "$PACKAGE - updating local package repository"
 				pushd "$WORKTREE" > /dev/null
+				local BARE_REPO="${SELF_REPO}/${PACKAGE}"
+				git remote remove local 2>/dev/null || true
+				git remote add local "$BARE_REPO" 2>&1 || warn "failed to add local remote"
 				git pull local "$(git rev-parse --abbrev-ref HEAD)"
 				popd > /dev/null
 			fi
