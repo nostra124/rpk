@@ -53,6 +53,13 @@ git() {
 	return $result
 }
 
+validate_account_name() {
+	local NAME="$1"
+	if [[ -z "$NAME" ]] || [[ "$NAME" =~ [./] ]] || [[ "$NAME" == ".." ]]; then
+		fatal "invalid account name: $NAME"
+	fi
+}
+
 # We need to run getops as soon as possible so we catch -d and other
 # options that will modify our behaviour.
 # Commands are handled at the end of this script.
@@ -476,8 +483,8 @@ command:major() {
 	validate_package_name "$PACKAGE"
 	local WORKTREE=$(command:worktree "$PACKAGE")
 	test -z "$WORKTREE" && fatal "major - package $PACKAGE has no worktree - please stage it"
-	local VERSION=$(command:versions $PACKAGE | tail -1)
-	pushd $WORKTREE > /dev/null
+	local VERSION=$(command:versions "$PACKAGE" | tail -1)
+	pushd "$WORKTREE" > /dev/null
 	if [[ "$VERSION" =~ $SEMVER_REGEX ]]; then
 		local MAJOR=${BASH_REMATCH[1]}
 		local MINOR=${BASH_REMATCH[2]}
@@ -488,9 +495,9 @@ command:major() {
 	fi
 
 	echo "$NEW" | tee -a versions > /dev/null
-	git add versions && git commit -m "updated version to $NEW" versions
-	git tag -a v$NEW -m "Version $NEW release"
-	push:branches local
+	git add versions && git commit -m "updated version to $NEW" versions || { popd > /dev/null; fatal "failed to commit version"; }
+	git tag -a v$NEW -m "Version $NEW release" || { popd > /dev/null; fatal "failed to tag version"; }
+	push:branches local || true
 	popd > /dev/null
 }
 
@@ -500,8 +507,8 @@ command:minor() {
 	validate_package_name "$PACKAGE"
 	local WORKTREE=$(command:worktree "$PACKAGE")
 	test -z "$WORKTREE" && fatal "minor - package $PACKAGE has no worktree - please stage it"
-	local VERSION=$(command:versions $PACKAGE | tail -1)
-	pushd $WORKTREE > /dev/null
+	local VERSION=$(command:versions "$PACKAGE" | tail -1)
+	pushd "$WORKTREE" > /dev/null
 	if [[ "$VERSION" =~ $SEMVER_REGEX ]]; then
 		local MAJOR=${BASH_REMATCH[1]}
 		local MINOR=${BASH_REMATCH[2]}
@@ -512,9 +519,9 @@ command:minor() {
 	fi
 		
 	echo "$NEW" | tee -a versions > /dev/null
-	git add versions && git commit -m "updated version to $NEW" versions
-	git tag -a v$NEW -m "Version $NEW release"
-	push:branches local
+	git add versions && git commit -m "updated version to $NEW" versions || { popd > /dev/null; fatal "failed to commit version"; }
+	git tag -a v$NEW -m "Version $NEW release" || { popd > /dev/null; fatal "failed to tag version"; }
+	push:branches local || true
 	popd > /dev/null
 }
 
@@ -524,8 +531,8 @@ command:patch() {
 	validate_package_name "$PACKAGE"
 	local WORKTREE=$(command:worktree "$PACKAGE")
 	test -z "$WORKTREE" && fatal "patch - package $PACKAGE has no worktree - please stage it"
-	local VERSION=$(command:versions $PACKAGE | tail -1)
-	pushd $WORKTREE > /dev/null
+	local VERSION=$(command:versions "$PACKAGE" | tail -1)
+	pushd "$WORKTREE" > /dev/null
 	if [[ "$VERSION" =~ $SEMVER_REGEX ]]; then
 		local MAJOR=${BASH_REMATCH[1]}
 		local MINOR=${BASH_REMATCH[2]}
@@ -536,9 +543,9 @@ command:patch() {
 	fi
 
 	echo "$NEW" | tee -a versions > /dev/null
-	git add versions && git commit -m "updated version to $NEW" versions
-	git tag -a v$NEW -m "Version $NEW release"
-	push:branches local
+	git add versions && git commit -m "updated version to $NEW" versions || { popd > /dev/null; fatal "failed to commit version"; }
+	git tag -a v$NEW -m "Version $NEW release" || { popd > /dev/null; fatal "failed to tag version"; }
+	push:branches local || true
 	popd > /dev/null
 }
 
@@ -624,37 +631,37 @@ command:upgrade() {
 command:init() {
 	local WORKTREE=$(git rev-parse --show-toplevel 2> /dev/null)
 	test -z "$WORKTREE" && fatal "we are not in a git repository"
-	pushd $WORKTREE > /dev/null
-	mkdir -p $WORKTREE/.rpk/depends
+	pushd "$WORKTREE" > /dev/null
+	mkdir -p "$WORKTREE/.rpk/depends"
 
-	if [ ! -f $WORKTREE/.rpk/rpk-type ]; then
-		echo "user" > $WORKTREE/.rpk/rpk-type
+	if [ ! -f "$WORKTREE/.rpk/rpk-type" ]; then
+		echo "user" > "$WORKTREE/.rpk/rpk-type"
 	fi
 
-	if [ ! -f $WORKTREE/.rpk/versions ]; then
-		echo "0.0.0" > $WORKTREE/.rpk/versions
+	if [ ! -f "$WORKTREE/.rpk/versions" ]; then
+		echo "0.0.0" > "$WORKTREE/.rpk/versions"
 	fi
 
-	if [ ! -f $WORKTREE/.rpk/package ]; then
-		cat > $WORKTREE/.rpk/package <<'EOF'
+	if [ ! -f "$WORKTREE/.rpk/package" ]; then
+		cat > "$WORKTREE/.rpk/package" <<'EOF'
 #!/bin/bash
 VERSION=$1
 echo "Packaging version $VERSION"
 EOF
-		chmod +x $WORKTREE/.rpk/package
+		chmod +x "$WORKTREE/.rpk/package"
 	fi
 
-	if [ ! -f $WORKTREE/.rpk/install ]; then
-		cat > $WORKTREE/.rpk/install <<'EOF'
+	if [ ! -f "$WORKTREE/.rpk/install" ]; then
+		cat > "$WORKTREE/.rpk/install" <<'EOF'
 #!/bin/bash
 VERSION=$1
 echo "Installing version $VERSION"
 EOF
-		chmod +x $WORKTREE/.rpk/install
+		chmod +x "$WORKTREE/.rpk/install"
 	fi
 
-	git add .rpk && git commit -m "initialized .rpk"
-	push:branches local
+	git add .rpk && git commit -m "initialized .rpk" || { popd > /dev/null; fatal "failed to commit .rpk files"; }
+	push:branches local || true
 	popd > /dev/null
 }
 
@@ -782,21 +789,22 @@ command:pull() {
 	local PACKAGE=${1}
 	local ACCOUNT=${2}
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
+	[ -n "$ACCOUNT" ] && validate_account_name "$ACCOUNT"
 	local WORKTREE=$(command:worktree "$PACKAGE")
 	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
 		for PACKAGE in $(command:list); do
-			command:pull $PACKAGE
+			command:pull "$PACKAGE"
 		done
 	else
 		test -z "$WORKTREE" && fatal "pull - package $PACKAGE has no worktree - please stage it"
 		pushd "$WORKTREE" > /dev/null
 		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
 		if [ -z "$ACCOUNT" ]; then
-			git fetch origin
-			git merge origin/$(git rev-parse --abbrev-ref HEAD)
+			git fetch origin || { popd > /dev/null; fatal "failed to fetch from origin"; }
+			git merge "origin/$(git rev-parse --abbrev-ref HEAD)" || { popd > /dev/null; fatal "failed to merge from origin"; }
 		else
-			git fetch "$ACCOUNT"
-			git merge "$ACCOUNT/$(git rev-parse --abbrev-ref HEAD)"
+			git fetch "$ACCOUNT" || { popd > /dev/null; fatal "failed to fetch from $ACCOUNT"; }
+			git merge "$ACCOUNT/$(git rev-parse --abbrev-ref HEAD)" || { popd > /dev/null; fatal "failed to merge from $ACCOUNT"; }
 		fi
 		popd > /dev/null
 	fi
@@ -807,19 +815,20 @@ command:push() {
 	local PACKAGE=${1}
 	local ACCOUNT=${2}
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
+	[ -n "$ACCOUNT" ] && validate_account_name "$ACCOUNT"
 	local WORKTREE=$(command:worktree "$PACKAGE")
 	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
 		for PACKAGE in $(command:list); do
-			command:push $PACKAGE
+			command:push "$PACKAGE"
 		done
 	else
 		test -z "$WORKTREE" && fatal "push - package $PACKAGE has no worktree - please stage it"
 		pushd "$WORKTREE" > /dev/null
 		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
 		if [ -z "$ACCOUNT" ]; then
-			git push -u origin HEAD
+			git push -u origin HEAD || { popd > /dev/null; fatal "failed to push to origin"; }
 		else
-			git push -u "$ACCOUNT" HEAD
+			git push -u "$ACCOUNT" HEAD || { popd > /dev/null; fatal "failed to push to $ACCOUNT"; }
 		fi
 		popd > /dev/null
 	fi
@@ -866,6 +875,8 @@ push:branches() {
 command:sync() {
 	local ACCOUNT=${1}
 	local PACKAGE=${2}
+	[ -n "$ACCOUNT" ] && validate_account_name "$ACCOUNT"
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
 	local ACCOUNT_CONFIG=$(rpk:account-config)
 
 	if [ -z "$ACCOUNT" ]; then
@@ -919,6 +930,7 @@ command:sync() {
 #------------------------------------------------------------------------------
 command:drop() {
 	local ACCOUNT=${1}; test -z "$ACCOUNT" && fatal "please specify an account"
+	validate_account_name "$ACCOUNT"
 	local PACKAGE=${2}
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
 	local WORKTREE=$(command:worktree "$PACKAGE")

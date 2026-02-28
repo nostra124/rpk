@@ -81,6 +81,14 @@ validate_package_name() {
         fatal "invalid package name: $NAME"
     fi
 }
+
+# Validate account names to prevent path traversal
+validate_account_name() {
+    local NAME="$1"
+    if [[ -z "$NAME" ]] || [[ "$NAME" =~ [./] ]] || [[ "$NAME" == ".." ]]; then
+        fatal "invalid account name: $NAME"
+    fi
+}
 ```
 
 ### Input Handling
