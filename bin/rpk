@@ -122,15 +122,15 @@ rpk:stage-repo() {
 
 	if [ -d "$WORKTREE" ]; then
 		pushd "$WORKTREE" > /dev/null
-		git remote remove origin 2>/dev/null
-		git remote add origin "$BARE_REPO" 2>/dev/null
+		git remote remove local 2>/dev/null
+		git remote add local "$BARE_REPO" 2>/dev/null
 		popd > /dev/null
 	elif [ -d "$BARE_REPO" ]; then
 		if ! git clone "$BARE_REPO" "$WORKTREE" 2>/dev/null; then
 			fatal "failed to clone repository $BARE_REPO"
 		fi
 		pushd "$WORKTREE" > /dev/null
-		git remote remove origin
+		git remote remove local
 		popd > /dev/null
 	else
 		return 1
@@ -187,6 +187,7 @@ options:
 available commands:
    help                    print this help message
    source                  print the packages source directory
+   repo                    print the packages repo directory
    target <home|system>    print the packages target directory
    bundle <home|system>    print the packages bundle directory
    action <cmd> [args]     executes and prints the command <cmd>
@@ -646,13 +647,13 @@ command:init() {
 	
 	mkdir -p "$SELF_REPO"
 	
-	if git remote | grep -q "^origin$"; then
-		info "origin remote already exists"
+	if git remote | grep -q "^local$"; then
+		info "local remote already exists"
 	else
-		info "setting up origin remote to local bare repo"
-		if ! git remote add origin "$SELF_REPO/$REPO_NAME"; then
+		info "setting up local remote to local bare repo"
+		if ! git remote add local "$SELF_REPO/$REPO_NAME"; then
 			popd > /dev/null
-			fatal "failed to add origin remote"
+			fatal "failed to add local remote"
 		fi
 	fi
 	
@@ -863,7 +864,7 @@ command:push() {
 		pushd "$WORKTREE" > /dev/null
 		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
 		if [ -z "$ACCOUNT" ]; then
-			git push -u origin HEAD || { popd > /dev/null; fatal "failed to push to origin"; }
+			git push -u local HEAD || { popd > /dev/null; fatal "failed to push to local"; }
 		else
 			git push -u "$ACCOUNT" HEAD || { popd > /dev/null; fatal "failed to push to $ACCOUNT"; }
 		fi
@@ -887,8 +888,8 @@ command:release() {
 		pushd "$WORKTREE" > /dev/null
 		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
 		
-		info "$PACKAGE - pushing to origin (local bare repo)"
-		git push -u origin HEAD || { popd > /dev/null; fatal "failed to push to origin"; }
+		info "$PACKAGE - pushing to local (local bare repo)"
+		git push -u local HEAD || { popd > /dev/null; fatal "failed to push to local"; }
 		
 		if [ -n "$ACCOUNT" ]; then
 			info "$PACKAGE - pushing to $ACCOUNT (remote)"
@@ -969,23 +970,23 @@ command:sync() {
 				command:sync "$ACCOUNT" "$PACKAGE"
 			done
 		elif [ -z "$WORKTREE" ]; then
-			if ssh "$ACCOUNT" "$SELF" bare 2>/dev/null | grep -q "^$SELF-$PACKAGE$"; then
+			if ssh "$ACCOUNT" "$SELF" repo 2>/dev/null | grep -q "^${ACCOUNT}:.*$SELF-$PACKAGE$"; then
 				info "$PACKAGE - staging from remote account"
-				git clone "$ACCOUNT:$SELF_SOURCES/$SELF-$PACKAGE" "$SELF_SOURCES/$SELF-$PACKAGE" 2>/dev/null || \
-				ssh "$ACCOUNT" "git --git-dir=$SELF_DATA/$SELF-$PACKAGE" archive HEAD | tar -x -C "$SELF_SOURCES"
-			elif ssh "$ACCOUNT" "$SELF" bare 2>/dev/null | grep -q "^$PACKAGE$"; then
+				git clone "$ACCOUNT:$SELF_REPO/$SELF-$PACKAGE" "$SELF_SOURCES/$SELF-$PACKAGE" 2>/dev/null || \
+				ssh "$ACCOUNT" "git --git-dir=$SELF_REPO/$SELF-$PACKAGE" archive HEAD | tar -x -C "$SELF_SOURCES"
+			elif ssh "$ACCOUNT" "$SELF" repo 2>/dev/null | grep -q "^${ACCOUNT}:.*$PACKAGE$"; then
 				info "$PACKAGE - staging from remote account"
-				git clone "$ACCOUNT:$SELF_DATA/$PACKAGE" "$SELF_SOURCES/$PACKAGE" 2>/dev/null || \
-				ssh "$ACCOUNT" "git --git-dir=$SELF_DATA/$PACKAGE" archive HEAD | tar -x -C "$SELF_SOURCES"
+				git clone "$ACCOUNT:$SELF_REPO/$PACKAGE" "$SELF_SOURCES/$PACKAGE" 2>/dev/null || \
+				ssh "$ACCOUNT" "git --git-dir=$SELF_REPO/$PACKAGE" archive HEAD | tar -x -C "$SELF_SOURCES"
 			else
 				fatal "repository for package $PACKAGE is not available at $ACCOUNT"
 			fi
 		elif [ -d "$WORKTREE" ]; then
 			pushd "$WORKTREE" > /dev/null
 			git stash && git clean -fd
-			git fetch origin
-			git merge origin/$(git rev-parse --abbrev-ref HEAD)
-			git push -u origin HEAD
+			git fetch local
+			git merge local/$(git rev-parse --abbrev-ref HEAD)
+			git push -u local HEAD
 			git fetch "$ACCOUNT"
 			git merge "$ACCOUNT/$(git rev-parse --abbrev-ref HEAD)"
 			git push -u "$ACCOUNT" HEAD
