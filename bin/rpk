@@ -79,19 +79,11 @@ shift $((OPTIND-1))
 : ${XDG_DATA_HOME:="$HOME/.local/var/lib"}
 : ${EUID:=$(id -u)}
 
-if [ "$EUID" -ne 0 ]; then
-	SELF_CONFIG=${XDG_CONFIG_HOME}/${SELF}
-	SELF_CACHE=${XDG_CACHE_HOME}/${SELF}
-	SELF_DATA=${XDG_DATA_HOME}/${SELF}
-	SELF_SOURCES=${HOME}/.local/src
-	SELF_REPO=${XDG_DATA_HOME}/repo
-else
-	SELF_CONFIG=/etc/${SELF}
-	SELF_CACHE=/var/cache/${SELF}
-	SELF_DATA=/var/lib/${SELF}
-	SELF_SOURCES=/usr/local/src
-	SELF_REPO=/var/lib/repo
-fi
+SELF_CONFIG=${XDG_CONFIG_HOME}/${SELF}
+SELF_CACHE=${XDG_CACHE_HOME}/${SELF}
+SELF_DATA=${XDG_DATA_HOME}/${SELF}
+SELF_SOURCES=${HOME}/.local/src
+SELF_REPO=${XDG_DATA_HOME}/repo
 
 mkdir -p "$SELF_DATA"
 mkdir -p "$SELF_SOURCES"
@@ -377,7 +369,7 @@ command:worktree() {
 		fi
 	elif test -f "$SELF_SOURCES/$PACKAGE/.rpk/rpk-type"; then
 		echo "$SELF_SOURCES/$PACKAGE/.$SELF"
-	elif test -f "$SELF_SOURCES/$SELF-$PACKAGE/.rpk/rpk-type"; then
+	elif test -f "$SELF_SOURCES/$SELF-$PACKAGE/rpk-type"; then
 		echo "$SELF_SOURCES/$SELF-$PACKAGE"
 	else
 		local WORKTREE=$(git rev-parse --show-toplevel 2> /dev/null)
