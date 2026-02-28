@@ -376,7 +376,7 @@ command:worktree() {
 			return 1
 		fi
 	elif test -f "$SELF_SOURCES/$PACKAGE/.rpk/rpk-type"; then
-		echo "$SELF_SOURCES/$PACKAGE"
+		echo "$SELF_SOURCES/$PACKAGE/.$SELF"
 	elif test -f "$SELF_SOURCES/$SELF-$PACKAGE/.rpk/rpk-type"; then
 		echo "$SELF_SOURCES/$SELF-$PACKAGE"
 	else
