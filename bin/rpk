@@ -653,17 +653,23 @@ command:type() {
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
 	local WORKTREE=$(command:worktree "$PACKAGE")
 	test -z "$WORKTREE" && fatal "type - package $PACKAGE has no worktree - please stage it"
-	cat $WORKTREE/$SELF-type
+	if [ -f "$WORKTREE/.rpk/rpk-type" ]; then
+		cat "$WORKTREE/.rpk/rpk-type"
+	elif [ -f "$WORKTREE/$SELF-type" ]; then
+		cat "$WORKTREE/$SELF-type"
+	else
+		fatal "package $PACKAGE has no type defined"
+	fi
 }
 
 #------------------------------------------------------------------------------
 command:list() {
 	{ for REPO in $(ls -1 $(command:source) 2>/dev/null); do
 		if [[ $REPO =~ ^"$SELF-" ]]; then
-			if [ -f "$SELF_SOURCES/$REPO/$SELF-type" ]; then
+			if [ -f "$SELF_SOURCES/$REPO/$SELF-type" ] || [ -f "$SELF_SOURCES/$REPO/.$SELF/rpk-type" ]; then
 				echo "$REPO" | sed "s/$SELF-//g"
 			fi
-		elif [ -f "$SELF_SOURCES/$REPO/.$SELF/$SELF-type" ]; then
+		elif [ -f "$SELF_SOURCES/$REPO/.$SELF/$SELF-type" ] || [ -f "$SELF_SOURCES/$REPO/.$SELF/rpk-type" ]; then
 			echo "$REPO"
 		fi
 	done 
@@ -694,7 +700,8 @@ command:user() {
 #------------------------------------------------------------------------------
 command:show() {
 	local PACKAGE=${1}
-	local WORKTREE=$(command:worktree $PACKAGE)
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
+	local WORKTREE=$(command:worktree "$PACKAGE")
 	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
 		for PACKAGE in $(command:list); do
 			command:show $PACKAGE
@@ -763,7 +770,8 @@ command:stage() {
 command:pull() {
 	local PACKAGE=${1}
 	local ACCOUNT=${2}
-	local WORKTREE=$(command:worktree $PACKAGE)
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
+	local WORKTREE=$(command:worktree "$PACKAGE")
 	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
 		for PACKAGE in $(command:list); do
 			command:pull $PACKAGE
@@ -787,7 +795,8 @@ command:pull() {
 command:push() {
 	local PACKAGE=${1}
 	local ACCOUNT=${2}
-	local WORKTREE=$(command:worktree $PACKAGE)
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
+	local WORKTREE=$(command:worktree "$PACKAGE")
 	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
 		for PACKAGE in $(command:list); do
 			command:push $PACKAGE
@@ -900,7 +909,8 @@ command:sync() {
 command:drop() {
 	local ACCOUNT=${1}; test -z "$ACCOUNT" && fatal "please specify an account"
 	local PACKAGE=${2}
-	local WORKTREE=$(command:worktree $PACKAGE)
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
+	local WORKTREE=$(command:worktree "$PACKAGE")
 	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
 		for PACKAGE in $(command:list); do
 			command:drop $ACCOUNT $PACKAGE
@@ -918,7 +928,8 @@ command:drop() {
 #------------------------------------------------------------------------------
 command:depends() {
 	local PACKAGE=${1};
-	local WORKTREE=$(command:worktree $PACKAGE)
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
+	local WORKTREE=$(command:worktree "$PACKAGE")
 	test -z "$WORKTREE" && fatal "depends - package $PACKAGE has no worktree - please stage it"
 	local SCRIPT=${2}
 	if [ -z "$SCRIPT" ]; then
@@ -941,7 +952,8 @@ command:depends() {
 #------------------------------------------------------------------------------
 command:bundles() {
 	local PACKAGE=${1}
-	local WORKTREE=$(command:worktree $PACKAGE)
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
+	local WORKTREE=$(command:worktree "$PACKAGE")
 	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
 		for PACKAGE in $(command:list); do
 			command:bundles $PACKAGE
@@ -958,7 +970,8 @@ command:bundles() {
 #------------------------------------------------------------------------------
 command:cleanup() {
 	local PACKAGE=${1}
-	local WORKTREE=$(command:worktree $PACKAGE)
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
+	local WORKTREE=$(command:worktree "$PACKAGE")
 	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
 		for PACKAGE in $(command:list); do
 			command:cleanup $PACKAGE
@@ -985,7 +998,8 @@ command:cleanup() {
 command:package() {
 	local PACKAGE=$1
 	local VERSION=$2
-	local WORKTREE=$(command:worktree $PACKAGE)
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
+	local WORKTREE=$(command:worktree "$PACKAGE")
 	test -z "$WORKTREE" && fatal "package - package $PACKAGE has no worktree - please stage it"
 
 	pushd $WORKTREE > /dev/null
@@ -1050,7 +1064,8 @@ ENDHELP
 command:install() {
 	local PACKAGE=$1;
 	local VERSION=$2;
-	local WORKTREE=$(command:worktree $PACKAGE)
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
+	local WORKTREE=$(command:worktree "$PACKAGE")
 	test -z "$WORKTREE" && fatal "install: package $PACKAGE has no worktree - please stage it"
 
 	pushd $WORKTREE > /dev/null
@@ -1128,7 +1143,8 @@ ENDHELP
 #------------------------------------------------------------------------------
 command:delete() {
 	local PACKAGE=${1};
-	local WORKTREE=$(command:worktree $PACKAGE)
+	validate_package_name "$PACKAGE"
+	local WORKTREE=$(command:worktree "$PACKAGE")
 	test -z "$WORKTREE" && fatal "delete - package $PACKAGE has no worktree - please stage it"
 
 	pushd $WORKTREE > /dev/null
@@ -1151,7 +1167,8 @@ command:delete() {
 #------------------------------------------------------------------------------
 command:update() {
 	local PACKAGE=${1}
-	if [ -z $PACKAGE ]; then
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
+	if [ -z "$PACKAGE" ]; then
 		local WORKTREE=$(command:worktree)
 		if [ -z "$WORKTREE" ]; then
 			if [ "$EUID" -eq 0 ]; then
@@ -1196,7 +1213,8 @@ command:update() {
 #------------------------------------------------------------------------------
 command:command() {
 	local PACKAGE=${1};
-	local WORKTREE=$(command:worktree $PACKAGE)
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
+	local WORKTREE=$(command:worktree "$PACKAGE")
 	test -z "$WORKTREE" && fatal "command - package $PACKAGE has no worktree - please stage it"
 	local COMMAND=${2}
 	
