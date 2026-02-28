@@ -84,15 +84,18 @@ if [ "$EUID" -ne 0 ]; then
 	SELF_CACHE=${XDG_CACHE_HOME}/${SELF}
 	SELF_DATA=${XDG_DATA_HOME}/${SELF}
 	SELF_SOURCES=${HOME}/.local/src
+	SELF_REPO=${XDG_DATA_HOME}/repo
 else
 	SELF_CONFIG=/etc/${SELF}
 	SELF_CACHE=/var/cache/${SELF}
 	SELF_DATA=/var/lib/${SELF}
 	SELF_SOURCES=/usr/local/src
+	SELF_REPO=/var/lib/repo
 fi
 
 mkdir -p "$SELF_DATA"
 mkdir -p "$SELF_SOURCES"
+mkdir -p "$SELF_REPO"
 
 [ -n "$SELF_VERBOSE" ] && set -vx
 STOW=$(which stow)
@@ -113,7 +116,7 @@ rpk:ssh-known-accounts() {
 rpk:stage-repo() {
 	local REPO=$1
 	local WORKTREE="$SELF_SOURCES/$REPO"
-	local BARE_REPO="$SELF_DATA/$REPO"
+	local BARE_REPO="$SELF_REPO/$REPO"
 
 	[ -d "$WORKTREE" -a ! -d "$WORKTREE/.git" ] && rm -rf "$WORKTREE"
 
@@ -211,7 +214,7 @@ package version commands:
 system commands:
     platform               prints the platform name of the base system
     upgrade                upgrades and potentially restarts the base system
-    init                   initializes the .rpk directory
+     init [account]         initializes the .rpk directory
 
 package query commands:
    type <pkg>              shows the package type (system|user)
@@ -253,6 +256,11 @@ ENDHELP
 #------------------------------------------------------------------------------
 command:source() {
 	echo "$SELF_SOURCES"
+}
+
+#------------------------------------------------------------------------------
+command:repo() {
+	echo "$SELF_REPO"
 }
 
 #------------------------------------------------------------------------------
@@ -630,9 +638,37 @@ command:upgrade() {
 
 #------------------------------------------------------------------------------
 command:init() {
+	local ACCOUNT=${1}
 	local WORKTREE=$(git rev-parse --show-toplevel 2> /dev/null)
+	local REPO_NAME=$(basename "$WORKTREE")
 	test -z "$WORKTREE" && fatal "we are not in a git repository"
 	pushd "$WORKTREE" > /dev/null
+	
+	mkdir -p "$SELF_REPO"
+	
+	if git remote | grep -q "^origin$"; then
+		info "origin remote already exists"
+	else
+		info "setting up origin remote to local bare repo"
+		if ! git remote add origin "$SELF_REPO/$REPO_NAME"; then
+			popd > /dev/null
+			fatal "failed to add origin remote"
+		fi
+	fi
+	
+	if [ -n "$ACCOUNT" ]; then
+		validate_account_name "$ACCOUNT"
+		if git remote | grep -q "^${ACCOUNT}$"; then
+			info "$ACCOUNT remote already exists"
+		else
+			info "setting up $ACCOUNT remote"
+			if ! git remote add "$ACCOUNT" "$ACCOUNT:$SELF_REPO/$REPO_NAME"; then
+				popd > /dev/null
+				fatal "failed to add $ACCOUNT remote"
+			fi
+		fi
+	fi
+	
 	mkdir -p "$WORKTREE/.rpk/depends"
 
 	if [ ! -f "$WORKTREE/.rpk/rpk-type" ]; then
@@ -850,16 +886,20 @@ command:release() {
 		test -z "$WORKTREE" && fatal "release - package $PACKAGE has no worktree - please stage it"
 		pushd "$WORKTREE" > /dev/null
 		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
-		test -z "$ACCOUNT" && fatal "release - please specify an account"
 		
-		info "$PACKAGE - pushing to $ACCOUNT"
-		git push -u "$ACCOUNT" HEAD || { popd > /dev/null; fatal "failed to push to $ACCOUNT"; }
+		info "$PACKAGE - pushing to origin (local bare repo)"
+		git push -u origin HEAD || { popd > /dev/null; fatal "failed to push to origin"; }
 		
-		info "$PACKAGE - uploading rpk to $ACCOUNT"
-		scp "$0" "$ACCOUNT:/tmp/rpk" || { popd > /dev/null; fatal "failed to upload rpk to $ACCOUNT"; }
-		
-		info "$PACKAGE - running update on $ACCOUNT"
-		ssh "$ACCOUNT" "/tmp/rpk update $PACKAGE" || warn "$PACKAGE - failed to update on $ACCOUNT"
+		if [ -n "$ACCOUNT" ]; then
+			info "$PACKAGE - pushing to $ACCOUNT (remote)"
+			git push -u "$ACCOUNT" HEAD || warn "$PACKAGE - failed to push to $ACCOUNT"
+			
+			info "$PACKAGE - uploading rpk to $ACCOUNT"
+			scp "$0" "$ACCOUNT:/tmp/rpk" || { popd > /dev/null; fatal "failed to upload rpk to $ACCOUNT"; }
+			
+			info "$PACKAGE - running update on $ACCOUNT"
+			ssh "$ACCOUNT" "/tmp/rpk update $PACKAGE" || warn "$PACKAGE - failed to update on $ACCOUNT"
+		fi
 		
 		popd > /dev/null
 	fi
