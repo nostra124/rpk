@@ -904,7 +904,7 @@ command:release() {
 	local WORKTREE=$(command:worktree "$PACKAGE")
 	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
 		for PACKAGE in $(command:list); do
-			command:release "$PACKAGE"
+			command:release "$PACKAGE" "$ACCOUNT"
 		done
 	else
 		test -z "$WORKTREE" && fatal "release - package $PACKAGE has no worktree - please stage it"
@@ -923,6 +923,17 @@ command:release() {
 			
 			info "$PACKAGE - running update on $ACCOUNT"
 			ssh "$ACCOUNT" "/tmp/rpk update $PACKAGE" || warn "$PACKAGE - failed to update on $ACCOUNT"
+		else
+			for REMOTE in $(git remote | grep '@'); do
+				info "$PACKAGE - pushing to $REMOTE (remote)"
+				git push -u "$REMOTE" HEAD || warn "$PACKAGE - failed to push to $REMOTE"
+				
+				info "$PACKAGE - uploading rpk to $REMOTE"
+				scp "$0" "$REMOTE:/tmp/rpk" || warn "$PACKAGE - failed to upload rpk to $REMOTE"
+				
+				info "$PACKAGE - running update on $REMOTE"
+				ssh "$REMOTE" "/tmp/rpk update $PACKAGE" || warn "$PACKAGE - failed to update on $REMOTE"
+			done
 		fi
 		
 		popd > /dev/null
