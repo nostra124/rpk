@@ -67,14 +67,19 @@ debug() {
     [ -n "$SELF_DEBUG" ] && echo -e "$SELF - debug: \033[90;m$@\033[0m" >&2
 }
 
-# Info output (can be suppressed)
+# Info output (can be suppressed or verbose)
 info() {
-    [ ! -n "$SELF_QUIET" ] && echo -e "$SELF - info:  \033[32;m$@\033[0m" >&2
+    if [ -n "$SELF_VERBOSE" ] || [ ! -n "$SELF_QUIET" ]; then
+        echo -e "$SELF - info:  \033[32;m$@\033[0m" >&2
+    fi
 }
 
-# Warnings
-warn() {
-    echo -e "$SELF - warn:  \033[33;1;m$@\033[0m" >&2
+# Validate package names to prevent path traversal
+validate_package_name() {
+    local NAME="$1"
+    if [[ -z "$NAME" ]] || [[ "$NAME" =~ [./] ]] || [[ "$NAME" == ".." ]]; then
+        fatal "invalid package name: $NAME"
+    fi
 }
 ```
 
@@ -180,12 +185,13 @@ Packages (git repos) must provide:
 ### Exit Codes
 - `0` - Success
 - `1` - General fatal error
+- `2` - Unknown command
+- `3` - Help topic not found
 - `100` - Package-specific errors (in package/install scripts)
-- Negative codes for specific errors (e.g., `exit -1`)
 
 ### Code Organization
 1. Configuration section (version, paths, defaults)
-2. Utility functions (fatal, debug, info, warn, has)
+2. Utility functions (fatal, debug, info, warn, has, validate_package_name, git wrapper)
 3. Option parsing
 4. Directory setup
 5. Command functions (`command:name`)

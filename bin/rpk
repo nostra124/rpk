@@ -44,6 +44,15 @@ validate_package_name() {
 	fi
 }
 
+git() {
+	command git "$@"
+	local result=$?
+	if [ $result -ne 0 ]; then
+		debug "git command failed: git $*"
+	fi
+	return $result
+}
+
 # We need to run getops as soon as possible so we catch -d and other
 # options that will modify our behaviour.
 # Commands are handled at the end of this script.
@@ -107,7 +116,9 @@ rpk:stage-repo() {
 		git remote add origin "$BARE_REPO" 2>/dev/null
 		popd > /dev/null
 	elif [ -d "$BARE_REPO" ]; then
-		git clone "$BARE_REPO" "$WORKTREE"
+		if ! git clone "$BARE_REPO" "$WORKTREE" 2>/dev/null; then
+			fatal "failed to clone repository $BARE_REPO"
+		fi
 		pushd "$WORKTREE" > /dev/null
 		git remote remove origin
 		popd > /dev/null
