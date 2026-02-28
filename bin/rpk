@@ -136,12 +136,12 @@ command:help() {
 			echo "'$1' is not an $SELF command"
 			echo ""
 			echo "please see '$SELF help'"
-			exit -1
+			exit 2
 		elif ! has help $1; then
 			echo "No help found for '$1'"
 			echo ""
 			echo "please see '$SELF help'"
-			exit -2
+			exit 3
 		else
 			help:$1
 			return 0
@@ -354,7 +354,8 @@ command:worktree() {
 #------------------------------------------------------------------------------
 command:identity() {
 	local PACKAGE=$1
-	local WORKTREE=$(command:worktree $PACKAGE)
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
+	local WORKTREE=$(command:worktree "$PACKAGE")
 	if [ ! -z "$WORKTREE" -a -d "$WORKTREE" ]; then
 		pushd $WORKTREE > /dev/null
 		local REPO_WORKTREE=$(git rev-parse --show-toplevel 2> /dev/null)
@@ -372,11 +373,14 @@ command:identity() {
 #------------------------------------------------------------------------------
 command:version() {
 	local PACKAGE=$1
-	local WORKTREE=$(command:worktree $PACKAGE)
+	local WORKTREE
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
+	WORKTREE=$(command:worktree "$PACKAGE")
+	
 	if [ -z "$PACKAGE" ]; then
 		if [ -z "$WORKTREE" ]; then
-			if [ -f $SELF_DATA/scripts ]; then
-				cat $SELF_DATA/scripts
+			if [ -f "$SELF_DATA/scripts" ]; then
+				cat "$SELF_DATA/scripts"
 			else
 				echo "$VERSION"
 			fi
@@ -386,7 +390,8 @@ command:version() {
 		fi
 	fi
 
-	if [ ! -z "$WORKTREE" -a -d "$WORKTREE" ]; then
+	WORKTREE=$(command:worktree "$PACKAGE")
+	if [ -n "$WORKTREE" ] && [ -d "$WORKTREE" ]; then
 		pushd $WORKTREE > /dev/null
 		if [ -f $SELF_DATA/$PACKAGE ]; then
 			cat $SELF_DATA/$PACKAGE
@@ -403,7 +408,8 @@ command:version() {
 #------------------------------------------------------------------------------
 command:versions() {
 	local PACKAGE=$1
-	local WORKTREE=$(command:worktree $PACKAGE)
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
+	local WORKTREE=$(command:worktree "$PACKAGE")
 	test -z "$WORKTREE" && fatal "versions - package $PACKAGE has no worktree - please stage it"
 	if [ -z "$PACKAGE" ]; then
 		test -z "$WORKTREE" || local PACKAGE=$(command:identity)
@@ -456,7 +462,8 @@ command:get-patch() {
 #-----------------------------------------------------------------------------
 command:major() {
 	local PACKAGE=${1};
-	local WORKTREE=$(command:worktree $PACKAGE)
+	validate_package_name "$PACKAGE"
+	local WORKTREE=$(command:worktree "$PACKAGE")
 	test -z "$WORKTREE" && fatal "major - package $PACKAGE has no worktree - please stage it"
 	local VERSION=$(command:versions $PACKAGE | tail -1)
 	pushd $WORKTREE > /dev/null
@@ -479,7 +486,8 @@ command:major() {
 #-----------------------------------------------------------------------------
 command:minor() {
 	local PACKAGE=${1};
-	local WORKTREE=$(command:worktree $PACKAGE)
+	validate_package_name "$PACKAGE"
+	local WORKTREE=$(command:worktree "$PACKAGE")
 	test -z "$WORKTREE" && fatal "minor - package $PACKAGE has no worktree - please stage it"
 	local VERSION=$(command:versions $PACKAGE | tail -1)
 	pushd $WORKTREE > /dev/null
@@ -502,7 +510,8 @@ command:minor() {
 #-----------------------------------------------------------------------------
 command:patch() {
 	local PACKAGE=${1};
-	local WORKTREE=$(command:worktree $PACKAGE)
+	validate_package_name "$PACKAGE"
+	local WORKTREE=$(command:worktree "$PACKAGE")
 	test -z "$WORKTREE" && fatal "patch - package $PACKAGE has no worktree - please stage it"
 	local VERSION=$(command:versions $PACKAGE | tail -1)
 	pushd $WORKTREE > /dev/null
@@ -577,7 +586,7 @@ command:platform() {
 
 #------------------------------------------------------------------------------
 command:upgrade() {
-	test $EUID -eq 0 -o -f /etc/sudoers.d/$USER || fatal "the account has no admin rights" -1
+	test $EUID -eq 0 -o -f /etc/sudoers.d/$USER || fatal "the account has no admin rights"
 	case $(command:platform) in
 		alpine)
 			;;
@@ -641,7 +650,8 @@ EOF
 #------------------------------------------------------------------------------
 command:type() {
 	local PACKAGE=${1};
-	local WORKTREE=$(command:worktree $PACKAGE)
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
+	local WORKTREE=$(command:worktree "$PACKAGE")
 	test -z "$WORKTREE" && fatal "type - package $PACKAGE has no worktree - please stage it"
 	cat $WORKTREE/$SELF-type
 }
@@ -1201,7 +1211,7 @@ command:command() {
 		./command/$COMMAND ${@:3}
 		popd > /dev/null
 	else
-		fatal "$PACKAGE - unknow package command ${@:2}"
+		fatal "$PACKAGE - unknown package command ${@:2}"
 	fi
 }
 
