@@ -105,34 +105,6 @@ rpk:ssh-known-accounts() {
 	done | grep -v "^$USER$" | sort -u | sed -z '$ s/\n$//'
 }
 
-rpk:stage-repo() {
-	local REPO=$1
-	local WORKTREE="$SELF_SOURCES/$REPO"
-	local BARE_REPO="$SELF_REPO/$REPO"
-	debug "rpk:stage-repo: REPO=$REPO WORKTREE=$WORKTREE BARE_REPO=$BARE_REPO"
-
-	[ -d "$WORKTREE" -a ! -d "$WORKTREE/.git" ] && rm -rf "$WORKTREE"
-
-	if [ -d "$WORKTREE" ]; then
-		pushd "$WORKTREE" > /dev/null
-		git remote remove local 2>/dev/null || true
-		git remote add local "$BARE_REPO" 2>/dev/null || true
-		popd > /dev/null
-	elif [ -d "$BARE_REPO" ]; then
-		debug "cloning $BARE_REPO to $WORKTREE"
-		if ! git clone "$BARE_REPO" "$WORKTREE" 2>&1; then
-			fatal "failed to clone repository $BARE_REPO"
-		fi
-		pushd "$WORKTREE" > /dev/null
-		git remote remove local 2>/dev/null || true
-		git remote add local "$BARE_REPO" 2>/dev/null || true
-		popd > /dev/null
-	else
-		return 1
-	fi
-	return 0
-}
-
 rpk:account-config() {
 	: ${ACCOUNT_CONFIG:="$HOME/.config/account"}
 	mkdir -p "$ACCOUNT_CONFIG/ssh"
@@ -361,15 +333,13 @@ command:worktree() {
 	if [ -z "$PACKAGE" ]; then
 		local WORKTREE=$(git rev-parse --show-toplevel 2> /dev/null)
 		if test -f $WORKTREE/.$SELF/$SELF-type; then
-			echo "$WORKTREE/.$SELF"
-		elif test -f $WORKTREE/$SELF-type; then
 			echo "$WORKTREE"
 		else
 			return 1
 		fi
-	elif test -f "$SELF_SOURCES/$PACKAGE/.rpk/rpk-type"; then
-		echo "$SELF_SOURCES/$PACKAGE/.$SELF"
-	elif test -f "$SELF_SOURCES/$SELF-$PACKAGE/rpk-type"; then
+	elif test -f "$SELF_SOURCES/$PACKAGE/.$SELF/$SELF-type"; then
+		echo "$SELF_SOURCES/$PACKAGE"
+	elif test -f "$SELF_SOURCES/$SELF-$PACKAGE/$SELF-type"; then
 		echo "$SELF_SOURCES/$SELF-$PACKAGE"
 	else
 		local WORKTREE=$(git rev-parse --show-toplevel 2> /dev/null)
@@ -381,8 +351,6 @@ command:worktree() {
 
 		if [ "$PACKAGE" = "$IDENTITY" ]; then
 			if test -f $WORKTREE/.$SELF/$SELF-type; then
-				echo "$WORKTREE/.$SELF"
-			elif test -f $WORKTREE/$SELF-type; then
 				echo "$WORKTREE"
 			else
 				return 1
@@ -810,12 +778,33 @@ command:stage() {
 			if [ -z "$WORKTREE" ]; then
 				if [ -d "$SELF_REPO/$PACKAGE" ]; then
 					info "$PACKAGE - staging local package repository"
-					rpk:stage-repo "$PACKAGE"
+				        local WORKTREE="$SELF_SOURCES/$PACKAGE"
+        				local BARE_REPO="$SELF_REPO/$PACKAGE"
 				elif [ -d "$SELF_REPO/$SELF-$PACKAGE" ]; then
-					info "$PACKAGE - staging local package repository"
-					rpk:stage-repo "$SELF-$PACKAGE"
+					local WORKTREE="$SELF_SOURCES/$SELF-$PACKAGE"
+					local BARE_REPO="$SELF_REPO/$SELF-$PACKAGE"
 				else
 					fatal "$PACKAGE - no bare repository found"
+				fi
+        
+				debug "stage: REPO=$REPO WORKTREE=$WORKTREE BARE_REPO=$BARE_REPO"
+				[ -d "$WORKTREE" -a ! -d "$WORKTREE/.git" ] && rm -rf "$WORKTREE"
+        
+				if [ -d "$WORKTREE" ]; then
+					pushd "$WORKTREE" > /dev/null
+					git remote remove local 2>/dev/null || true
+					git remote add local "$BARE_REPO" 2>/dev/null || true
+					popd > /dev/null
+				else
+					debug "cloning $BARE_REPO to $WORKTREE"
+					if ! git clone "$BARE_REPO" "$WORKTREE" 2>&1; then
+						fatal "failed to clone repository $BARE_REPO"
+					fi
+					
+					pushd "$WORKTREE" > /dev/null
+					git remote remove local 2>/dev/null || true
+					git remote add local "$BARE_REPO" 2>/dev/null || true
+					popd > /dev/null
 				fi
 			else
 				info "$PACKAGE - updating local package repository"
@@ -1052,12 +1041,8 @@ command:sync() {
 	local ACCOUNT_CONFIG=$(rpk:account-config)
 
 	if [ -z "$ACCOUNT" ]; then
-		for REPO in $(ls -1 "$SELF_SOURCES" 2>/dev/null); do
-			if [[ "$REPO" =~ ^"$SELF-" ]]; then
-				if [ ! -d "$SELF_SOURCES/$REPO" ]; then
-					rpk:stage-repo "$REPO"
-				fi
-			fi
+		for PACKAGE in $(command:list); do
+			command:stage $PACKAGE
 		done
 
 		for ACCOUNT in $(rpk:ssh-known-accounts); do
