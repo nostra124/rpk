@@ -388,28 +388,14 @@ command:version() {
 	local PACKAGE=$1
 	local WORKTREE
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	WORKTREE=$(command:worktree "$PACKAGE")
-	
-	if [ -z "$PACKAGE" ]; then
-		if [ -z "$WORKTREE" ]; then
-			if [ -f "$SELF_DATA/scripts" ]; then
-				cat "$SELF_DATA/scripts"
-			else
-				echo "$VERSION"
-			fi
-			return 0
-		else
-			local PACKAGE=$(command:identity)
-		fi
-	fi
-
-	WORKTREE=$(command:worktree "$PACKAGE")
+	local WORKTREE=$(command:worktree "$PACKAGE")
 	if [ -n "$WORKTREE" ] && [ -d "$WORKTREE" ]; then
 		pushd $WORKTREE > /dev/null
-		if [ -f $SELF_DATA/$PACKAGE ]; then
+		test -z "$PACKAGE" && PACKAGE=$(command:identity)
+		if [ -x .$SELF/version ]; then
+			.$SELF/version
+		elif [ -f $SELF_DATA/$PACKAGE ]; then
 			cat $SELF_DATA/$PACKAGE
-		elif [ -x version ]; then
-			./version | sort --unique --version-sort
 		fi
 		popd > /dev/null
 		return 0
