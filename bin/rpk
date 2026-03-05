@@ -337,9 +337,9 @@ command:worktree() {
 		else
 			return 1
 		fi
-	elif test -f "$SELF_SOURCES/$PACKAGE/.$SELF/$SELF-type"; then
+	elif test -d "$SELF_SOURCES/$PACKAGE/.$SELF"; then
 		echo "$SELF_SOURCES/$PACKAGE"
-	elif test -f "$SELF_SOURCES/$SELF-$PACKAGE/$SELF-type"; then
+	elif test -d "$SELF_SOURCES/$SELF-$PACKAGE"; then
 		echo "$SELF_SOURCES/$SELF-$PACKAGE"
 	else
 		local WORKTREE=$(git rev-parse --show-toplevel 2> /dev/null)
@@ -356,6 +356,8 @@ command:worktree() {
 				return 1
 			fi
 		else
+			warn "no worktree found $PACKAGE"
+			warn "$SELF_SOURCES/$PACKAGE/.$SELF/$SELF-type"
 			return 1
 		fi
 	fi
