@@ -386,7 +386,6 @@ command:identity() {
 #------------------------------------------------------------------------------
 command:version() {
 	local PACKAGE=$1
-	local WORKTREE
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
 	local WORKTREE=$(command:worktree "$PACKAGE")
 	if [ -n "$WORKTREE" ] && [ -d "$WORKTREE" ]; then
@@ -416,12 +415,10 @@ command:versions() {
 
 	if [ ! -z "$WORKTREE" -a -d "$WORKTREE" ]; then
 		pushd $WORKTREE > /dev/null
-		if [ -x ./versions ]; then
-			./versions | sort --unique --version-sort
-		elif [ -f ./versions ]; then
-			cat ./versions | sort --unique --version-sort
-		else
-			echo "0.0.0"
+		if [ -x .$SELF/versions ]; then
+			.$SELF/versions | sort --unique --version-sort
+		elif [ -f .$SELF/versions ]; then
+			cat .$SELF/versions | sort --unique --version-sort
 		fi
 		popd > /dev/null
 	fi
@@ -627,38 +624,51 @@ command:init() {
 		fi
 	fi
 	
-	mkdir -p "$WORKTREE/.rpk/depends"
+	mkdir -p "$WORKTREE/.$SELF/depends"
 
-	if [ ! -f "$WORKTREE/.rpk/rpk-type" ]; then
-		echo "user" > "$WORKTREE/.rpk/rpk-type"
+	if [ ! -f "$WORKTREE/.$SELF/type" ]; then
+		echo "user" > "$WORKTREE/.$SELF/type"
 	fi
 
-	if [ ! -f "$WORKTREE/.rpk/versions" ]; then
-		echo "0.0.0" > "$WORKTREE/.rpk/versions"
+	if [ ! -f "$WORKTREE/.$SELF/versions" ]; then
+		echo "0.0.1" > "$WORKTREE/.$SELF/versions"
 	fi
 
-	if [ ! -f "$WORKTREE/.rpk/package" ]; then
-		cat > "$WORKTREE/.rpk/package" <<'EOF'
+	if [ ! -f "$WORKTREE/.$SELF/package" ]; then
+		cat > "$WORKTREE/.$SELF/package" <<'EOF'
 #!/bin/bash
-VERSION=$1
-echo "Packaging version $VERSION"
-EOF
-		chmod +x "$WORKTREE/.rpk/package"
-	fi
 
-	if [ ! -f "$WORKTREE/.rpk/install" ]; then
-		cat > "$WORKTREE/.rpk/install" <<'EOF'
-#!/bin/bash
+function die() {
+	echo "\$@"
+	exit 100
+}
+
+SOURCE=$(git rev-parse --show-toplevel 2> /dev/null)
+PACKAGE=$($SELF identity)
 VERSION=$1
-echo "Installing version $VERSION"
+
+test -z "\$VERSION" && VERSION=$($SELF versions | tail -1)
+TARGET=$($SELF bundle user)/\$PACKAGE-\$VERSION
+
+BRANCH=$(git branch --show-current)
+trap "git checkout \$BRANCH --force" EXIT
+
+if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+	git config advice.detachedHead false
+	git checkout v$VERSION
+else
+	die "version \$VERSION has no valid tag"
+fi
+
+git checkout \$BRANCH --force
 EOF
-		chmod +x "$WORKTREE/.rpk/install"
+		chmod +x "$WORKTREE/.$SELF/package"
 	fi
 
 	if git diff --cached --quiet; then
 		info "no changes to commit"
 	else
-		git add .rpk && git commit -m "initialized .rpk" || { popd > /dev/null; fatal "failed to commit .rpk files"; }
+		git add .$SELF && git commit -m "initialized .$SELF" || { popd > /dev/null; fatal "failed to commit .$SELF files"; }
 	fi
 	push:branches local || true
 	popd > /dev/null
@@ -670,12 +680,12 @@ command:type() {
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
 	local WORKTREE=$(command:worktree "$PACKAGE")
 	test -z "$WORKTREE" && fatal "type - package $PACKAGE has no worktree - please stage it"
-	if [ -f "$WORKTREE/.rpk/rpk-type" ]; then
-		cat "$WORKTREE/.rpk/rpk-type"
-	elif [ -f "$WORKTREE/$SELF-type" ]; then
-		cat "$WORKTREE/$SELF-type"
+	if [ -f "$WORKTREE/.$SELF/$SELF-type" ]; then
+		cat "$WORKTREE/.$SELF/$SELF-type"
+	elif [ -f "$WORKTREE/.$SELF/type" ]; then
+		cat "$WORKTREE/.$SELF/type"
 	else
-		fatal "package $PACKAGE has no type defined"
+		echo "user"
 	fi
 }
 
@@ -683,10 +693,8 @@ command:type() {
 command:list() {
 	{ for REPO in $(ls -1 $(command:source) 2>/dev/null); do
 		if [[ $REPO =~ ^"$SELF-" ]]; then
-			if [ -f "$SELF_SOURCES/$REPO/$SELF-type" ] || [ -f "$SELF_SOURCES/$REPO/.$SELF/rpk-type" ]; then
-				echo "$REPO" | sed "s/$SELF-//g"
-			fi
-		elif [ -f "$SELF_SOURCES/$REPO/.$SELF/$SELF-type" ] || [ -f "$SELF_SOURCES/$REPO/.$SELF/rpk-type" ]; then
+			echo "$REPO" | sed "s/$SELF-//g"
+		elif [ -d "$SELF_SOURCES/$REPO/.$SELF" ]; then
 			echo "$REPO"
 		fi
 	done 
@@ -796,8 +804,15 @@ command:stage() {
 				fi
 			else
 				info "$PACKAGE - updating local package repository"
+				if [ -d "$SELF_REPO/$PACKAGE" ]; then
+					local BARE_REPO="$SELF_REPO/$PACKAGE"
+				elif [ -d "$SELF_REPO/$SELF-$PACKAGE" ]; then
+					local BARE_REPO="$SELF_REPO/$SELF-$PACKAGE"
+				else
+					fatal "$PACKAGE - no bare repository found"
+				fi
+
 				pushd "$WORKTREE" > /dev/null
-				local BARE_REPO="${SELF_REPO}/${PACKAGE}"
 				git remote remove local 2>/dev/null || true
 				git remote add local "$BARE_REPO" 2>&1 || warn "failed to add local remote"
 				git fetch --tags local
