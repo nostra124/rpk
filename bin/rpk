@@ -772,7 +772,6 @@ command:stage() {
 			local WORKTREE=$(command:worktree "$PACKAGE")
 			if [ -z "$WORKTREE" ]; then
 				if [ -d "$SELF_REPO/$PACKAGE" ]; then
-					info "$PACKAGE - staging local package repository"
 				        local WORKTREE="$SELF_SOURCES/$PACKAGE"
         				local BARE_REPO="$SELF_REPO/$PACKAGE"
 				elif [ -d "$SELF_REPO/$SELF-$PACKAGE" ]; then
@@ -781,7 +780,8 @@ command:stage() {
 				else
 					fatal "$PACKAGE - no bare repository found"
 				fi
-        
+       
+				info "$PACKAGE - staging local package repository $WORKTREE" 
 				debug "stage: REPO=$REPO WORKTREE=$WORKTREE BARE_REPO=$BARE_REPO"
 				[ -d "$WORKTREE" -a ! -d "$WORKTREE/.git" ] && rm -rf "$WORKTREE"
         
