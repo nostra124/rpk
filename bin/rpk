@@ -1211,14 +1211,9 @@ command:package() {
 			fi
 		fi
 
-		info "$PACKAGE - installing dependencies..."
-		for SCRIPT in $(command:depends $PACKAGE); do
-			command:depends $PACKAGE $SCRIPT
-		done
-	
 		info "$PACKAGE - packaging into $PREFIX"
 		local OLDUMASK=$(umask); test $EUID -eq 0 && command:action umask 022
-		if ./package $VERSION; then
+		if .$SELF/package $VERSION; then
 			command:action umask $OLDUMASK; info  "$PACKAGE - package script successful"
 		else
 			command:action umask $OLDUMASK; fatal "$PACKAGE - package script failure"
