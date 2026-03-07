@@ -221,17 +221,16 @@ package synchronisation commands:
    drop <account> [pkg]    drops all connections to account <account>
 
 package dependency commands:
-   depends <pkg>           shows the dependencies of the package <pkg>
-   depends <pkg> <script>  executes the script to configure the dependency
+   depends [pkg]           install the dependencies of the package <pkg>
 
 package bundle command:
    bundles [pkg]           show the packaged versions of [pkg]
    cleanup [pkg]           cleanups old bundled versions
-   package <pkg> [version] packages the package bundle for <pkg>
+   package [pkg] [version] packages the package bundle for <pkg>
 
 package install and uninstall commands:
-   install <pkg> [version] releases the package version
-   delete <pkg>            deletes the package <pkg> from the directory tree
+   install [pkg] [version] releases the package version
+   delete [pkg]            deletes the package <pkg> from the directory tree
    update [pkg]            updates the package <pkg> in the directory tree
 
 package specific commands
@@ -736,10 +735,15 @@ command:show() {
 		test -z "$WORKTREE" && fatal "show - package $PACKAGE has no worktree - please stage it"
 		pushd $WORKTREE > /dev/null
 		local PACKAGE=$(command:identity)
+		if [ -d $WORKTREE/.$SELF/depends ]; then
+			local DEPENDS=$(ls -1 $WORKTREE/.$SELF/depends | tr '\n' ';' | sed 's/;$//')
+		else
+			local DEPENDS=""
+		fi
 		popd > /dev/null
 		echo -e "Name:\t\t$PACKAGE"
 		echo -e "Worktree:\t$WORKTREE"
-		echo -e "Depends:\t$(command:depends $PACKAGE | tr '\n' ';' | sed 's/;$//')"
+		echo -e "Depends:\t$DEPENDS"
 		echo -e "Versions:\t$(command:versions $PACKAGE | tr '\n' ';' | sed 's/;$//')"
 		echo -e "Version:\t$(command:version $PACKAGE)"
 		echo -e "Type:\t\t$(command:type $PACKAGE)"
@@ -1113,20 +1117,17 @@ command:depends() {
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
 	local WORKTREE=$(command:worktree "$PACKAGE")
 	test -z "$WORKTREE" && fatal "depends - package $PACKAGE has no worktree - please stage it"
-	local SCRIPT=${2}
-	if [ -z "$SCRIPT" ]; then
-		if [ -d $WORKTREE/depends ]; then
-			ls -1 $WORKTREE/depends
-		fi
-	elif [ -x $WORKTREE/depends/$SCRIPT ]; then
+	if [ -d $WORKTREE/.$SELF/depends ]; then
 		pushd $WORKTREE > /dev/null
 		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
 		if [ "$(command:type $PACKAGE)" = "system" ]; then
 			test $EUID -eq 0 || fatal "system packages dependencies have to be run as root user"
 		fi
-		
-		info "$PACKAGE - installing dependency $SCRIPT"
-		./depends/$SCRIPT
+
+		for SCRIPT in $(ls -1 $WORKTREE/.$SELF/depends); do
+			info "$PACKAGE - installing dependency $SCRIPT"
+			$WORKTREE/.$SELF/depends/$SCRIPT
+		done
 		popd > /dev/null
 	fi
 }
@@ -1188,12 +1189,12 @@ command:package() {
 	test -z "$PACKAGE" && local PACKAGE=$(command:identity)
 	test -z "$VERSION" && local VERSION=$(command:versions | tail -1)
 
-	if [ -x ./package ]; then
+	if [ -x .$SELF/package ]; then
 		if [ "$(command:type)" = "system" ]; then
 			if [ $EUID -eq 0 ]; then
 				local PREFIX=$(command:bundle system)/$PACKAGE-$VERSION
 			else
-				fatal "system packages have to be packages as root user"
+				fatal "system packages have to be packaged as root user"
 			fi
 		elif [ "$(command:type)" = "home" ]; then
 			local PREFIX=$(command:bundle home)/$PACKAGE-$VERSION
@@ -1222,6 +1223,8 @@ command:package() {
 		else
 			command:action umask $OLDUMASK; fatal "$PACKAGE - package script failure"
 		fi
+	else
+		info "package $PACKAGE: no packaging script available"
 	fi
 	popd > /dev/null
 }
