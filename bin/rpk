@@ -332,7 +332,7 @@ command:worktree() {
 	local PACKAGE=${1};
 	if [ -z "$PACKAGE" ]; then
 		local WORKTREE=$(git rev-parse --show-toplevel 2> /dev/null)
-		if test -f $WORKTREE/.$SELF/$SELF-type; then
+		if test -d $WORKTREE/.$SELF; then
 			echo "$WORKTREE"
 		else
 			return 1
@@ -350,14 +350,13 @@ command:worktree() {
 		fi
 
 		if [ "$PACKAGE" = "$IDENTITY" ]; then
-			if test -f $WORKTREE/.$SELF/$SELF-type; then
+			if test -f $WORKTREE/.$SELF; then
 				echo "$WORKTREE"
 			else
 				return 1
 			fi
 		else
 			warn "no worktree found $PACKAGE"
-			warn "$SELF_SOURCES/$PACKAGE/.$SELF/$SELF-type"
 			return 1
 		fi
 	fi
