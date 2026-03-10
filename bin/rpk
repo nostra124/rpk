@@ -1257,15 +1257,13 @@ command:install() {
 		test $EUID -eq 0 || fatal "system packages have to be installed as root user"
 	fi
 
-	if [ -x ./package ]; then
+	if [ -x .$SELF/package ]; then
 		local PREFIX=$(command:bundle $PACKAGE_TYPE)/$PACKAGE-$VERSION
 		if [ ! -d $PREFIX ]; then
 			warn "install $PACKAGE: running $SELF package $PACKAGE $VERSION first"
 			command:package $PACKAGE $VERSION
 		fi
-	fi
 
-	if [ -x ./package ]; then
 		local HOME_TARGET=$(command:target home)
 		mkdir -p $HOME_TARGET/bin
 		mkdir -p $HOME_TARGET/etc
@@ -1296,13 +1294,9 @@ command:install() {
 		mkdir -p $SELF_DATA && echo "$VERSION" | tee $SELF_DATA/$PACKAGE > /dev/null
 	fi
 
-	if [ -x ./install ]; then
-		if [ "$(command:type)" = "system" ]; then
-			test $EUID -eq 0 || fatal "system packages have to be installed as root user"
-		fi
-
+	if [ -x .$SELF/install ]; then
 		local OLDUMASK=$(umask); test $EUID -eq 0 && umask 022
-		if ./install $VERSION; then
+		if .$SELF/install $VERSION; then
 			command:action umask $OLDUMASK; info  "$PACKAGE - install script successful"
 		else
 			command:action umask $OLDUMASK; fatal "$PACKAGE - install script failure"
