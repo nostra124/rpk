@@ -445,20 +445,21 @@ command:hash() {
 
 #------------------------------------------------------------------------------
 command:changelog() {
-	local PACKAGE=${1};
-	local WORKTREE=$(command:worktree $PACKAGE)
-	test -z "$WORKTREE" && fatal "changelog - package $PACKAGE has no worktree - please stage it"
-	local VERSION=${2};
-	if [ -z "$VERSION" ]; then
-		local VERSION=$(command:versions $PACKAGE | tail -1)
+	local CURR=${1};
+	if [ -z "$CURR" ]; then
+		local CURR=$(command:versions | tail -1)
 	fi
-	local PREV=$(command:versions | awk -v target="$VERSION" '$0==target{print prev;exit}{prev=$0}')
+	local PREV=$(command:versions | awk -v target="$CURR" '$0==target{print prev;exit}{prev=$0}')
+
+	local PREV_COMMIT=$(command:commit $PREV)
+	local CURR_COMMIT=$(command:commit $CURR)
+
 	pushd $WORKTREE > /dev/null
-	if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
-		if [ -z "$PREV" ]; then 
-			local ENTRIES=$(git log -n 1000 v$VERSION --no-merges --pretty=format:"%s" --abbrev-commit)
+	if [ ! -z "$CURR_COMMIT" ]; then
+		if [ -z "$PREV_COMMIT" ]; then 
+			local ENTRIES=$(git log -n 1000 $CURR_COMMIT --no-merges --pretty=format:"%s" --abbrev-commit)
 		else
-			local ENTRIES=$(git log -n 1000 v$PREV..v$VERSION --no-merges --pretty=format:"%s" --abbrev-commit)
+			local ENTRIES=$(git log -n 1000 $PREV_COMMIT..$CURR_COMMIT --no-merges --pretty=format:"%s" --abbrev-commit)
 		fi
 		# GNU ChangeLog header format
 		local HEADER="$(date '+%Y-%m-%d')  $(git config user.name)  <$(git config user.email)>
@@ -470,7 +471,7 @@ command:changelog() {
 		echo "$HEADER"
 		echo "$CONTENT"
 	else
-		fatal "version $VERSION has no valid tag"
+		fatal "version $CURR has no commit hash"
 	fi
 	popd > /dev/null
 }
