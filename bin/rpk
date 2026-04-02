@@ -189,10 +189,6 @@ package version commands:
    [pkg] version           print the current installed version of <pkg>
    [pkg] versions          lists all installable versions of <pkg>
 
-   get-major <version>     extract the major part of <version>
-   get-minor <version>     extract the minor part of <version>
-   get-patch <version>     extract the patch part of <version>
-
    [pkg] major             commits a new major version for the package
    [pkg] minor             commits a new minor version for the package
    [pkg] patch             commits a new patch version for the package
@@ -361,10 +357,6 @@ command:version() {
 #------------------------------------------------------------------------------
 command:versions() {
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	if [ -z "$PACKAGE" ]; then
-		test -z "$WORKTREE" || local PACKAGE=$(command:identity)
-	fi
-
 	if [ ! -z "$WORKTREE" -a -d "$WORKTREE" ]; then
 		pushd $WORKTREE > /dev/null
 		if [ -x .$SELF/versions ]; then
@@ -377,33 +369,15 @@ command:versions() {
 }
 
 #------------------------------------------------------------------------------
-command:get-major() {
+command:commit() {
 	local VERSION=$1
-	if [[ "$VERSION" =~ $SEMVER_REGEX ]]; then
-		echo "${BASH_REMATCH[1]}"
-	else
-		fatal "version $VERSION does not match the semver scheme 'X.Y.Z(-PRERELEASE)(+BUILD)'. See $SELF help"
-	fi
-	
-}
-
-#------------------------------------------------------------------------------
-command:get-minor() {
-	local VERSION=$1
-	if [[ "$VERSION" =~ $SEMVER_REGEX ]]; then
-		echo "${BASH_REMATCH[2]}"
-	else
-		fatal "version $VERSION does not match the semver scheme 'X.Y.Z(-PRERELEASE)(+BUILD)'. See $SELF help"
-	fi
-}
-
-#-----------------------------------------------------------------------------
-command:get-patch() {
-	local VERSION=$1
-	if [[ "$VERSION" =~ $SEMVER_REGEX ]]; then
-		echo "${BASH_REMATCH[3]}"
-	else
-		fatal "version $VERSION does not match the semver scheme 'X.Y.Z(-PRERELEASE)(+BUILD)'. See $SELF help"
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
+	if [ ! -z "$WORKTREE" -a -d "$WORKTREE" ]; then
+		pushd $WORKTREE > /dev/null
+		if [ -f .$SELF/versions -a ! -x .$SELF/versions ]; then
+			grep "^$VERSION" .$SELF/versions | cut --fields=2 --only-delimited | head -1
+		fi
+		popd > /dev/null
 	fi
 }
 
@@ -424,9 +398,8 @@ command:major() {
 		local NEW="1.0.0"
 	fi
 
-	echo "$NEW" | tee -a versions > /dev/null
+	echo "$NEW\t$(git rev-parse HEAD)" | tee -a versions > /dev/null
 	git add versions && git commit -m "updated version to $NEW" versions || { popd > /dev/null; fatal "failed to commit version"; }
-	git tag -a v$NEW -m "Version $NEW release" || { popd > /dev/null; fatal "failed to tag version"; }
 	push:branches local || true
 	popd > /dev/null
 }
@@ -448,9 +421,8 @@ command:minor() {
 		local NEW="0.1.0"
 	fi
 		
-	echo "$NEW" | tee -a versions > /dev/null
+	echo "$NEW\t$(git rev-parse HEAD)" | tee -a versions > /dev/null
 	git add versions && git commit -m "updated version to $NEW" versions || { popd > /dev/null; fatal "failed to commit version"; }
-	git tag -a v$NEW -m "Version $NEW release" || { popd > /dev/null; fatal "failed to tag version"; }
 	push:branches local || true
 	popd > /dev/null
 }
@@ -472,10 +444,8 @@ command:patch() {
 		local NEW="0.0.1"
 	fi
 
-	local HASH=$(git rev-parse HEAD)
-	echo "$NEW" | tee -a .$SELF/versions > /dev/null
+	echo "$NEW\t$(git rev-parse HEAD)" | tee -a .$SELF/versions > /dev/null
 	git add .$SELF/versions && git commit -m "updated version to $NEW" .$SELF/versions || { popd > /dev/null; fatal "failed to commit version"; }
-	git tag -a v$NEW -m "Version $NEW release" || { popd > /dev/null; fatal "failed to tag version"; }
 	push:branches local || true
 	popd > /dev/null
 }
