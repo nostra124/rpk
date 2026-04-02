@@ -394,7 +394,7 @@ command:major() {
 		local NEW="1.0.0"
 	fi
 
-	echo "$NEW\t$(git rev-parse HEAD)" | tee -a .$SELF/versions > /dev/null
+	echo -e "$NEW\t$(git rev-parse HEAD)" | tee -a .$SELF/versions > /dev/null
 	git add .$SELF/versions && git commit -m "updated version to $NEW" .$SELF/versions || { popd > /dev/null; fatal "failed to commit version"; }
 	push:branches local || true
 	popd > /dev/null
@@ -413,7 +413,7 @@ command:minor() {
 		local NEW="0.1.0"
 	fi
 		
-	echo "$NEW\t$(git rev-parse HEAD)" | tee -a .$SELF/versions > /dev/null
+	echo -e "$NEW\t$(git rev-parse HEAD)" | tee -a .$SELF/versions > /dev/null
 	git add .$SELF/versions && git commit -m "updated version to $NEW" .$SELF/versions || { popd > /dev/null; fatal "failed to commit version"; }
 	push:branches local || true
 	popd > /dev/null
@@ -432,7 +432,7 @@ command:patch() {
 		local NEW="0.0.1"
 	fi
 
-	echo "$NEW\t$(git rev-parse HEAD)" | tee -a .$SELF/versions > /dev/null
+	echo -e "$NEW\t$(git rev-parse HEAD)" | tee -a .$SELF/versions > /dev/null
 	git add .$SELF/versions && git commit -m "updated version to $NEW" .$SELF/versions || { popd > /dev/null; fatal "failed to commit version"; }
 	push:branches local || true
 	popd > /dev/null
