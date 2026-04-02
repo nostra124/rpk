@@ -179,23 +179,23 @@ available commands:
    bundle <home|system>    print the packages bundle directory
    action <cmd> [args]     executes and prints the command <cmd>
    daemon <cmd> [args]     executes and prints the command <cmd> in background
-   info <pkg> <msg>        print a information message for package <pkg>
-   warn <pkg> <msg>        print a warning message for package <pkg>
-   fatal <pkg> <msg>       print a (fatal) error message for package <pkg>
+   [pkg] info <msg>        print a information message for package <pkg>
+   [pkg] warn <msg>        print a warning message for package <pkg>
+   [pkg] fatal <msg>       print a (fatal) error message for package <pkg>
 
 package version commands:
-   identity [pkg]          print the identity of <pkg> 
+   [pkg] identity          print the identity of <pkg> 
    version                 print the version of $SELF
-   version <pkg>           print the current installed version of <pkg>
-   versions [pkg]          lists all installable versions of <pkg>
+   [pkg] version           print the current installed version of <pkg>
+   [pkg] versions          lists all installable versions of <pkg>
 
    get-major <version>     extract the major part of <version>
    get-minor <version>     extract the minor part of <version>
    get-patch <version>     extract the patch part of <version>
 
-   major <pkg>             commits a new major version for the package
-   minor <pkg>             commits a new minor version for the package
-   patch <pkg>             commits a new patch version for the package
+   [pkg] major             commits a new major version for the package
+   [pkg] minor             commits a new minor version for the package
+   [pkg] patch             commits a new patch version for the package
 
    changelog <version>     get the changelog for the respective version
 
@@ -205,36 +205,36 @@ system commands:
    init                    initializes the .rpk directory
 
 package query commands:
-   type <pkg>              shows the package type (system|user)
+   [pkg] type              shows the package type (system|user)
    list                    lists all available packages in ${SELF_SOURCES}
    system                  lists all system wide installable packages
    user                    lists all user installable packages
-   show <pkg>              shows all info available regarding <pkg>
+   [pkg] show              shows all info available regarding <pkg>
 
 package synchronisation commands:
-   accounts [pkg]          prints the accounts of the packages in ${SELF_SOURCES}
-   stage [pkgs]            stages the packages in ${SELF_SOURCES}
-   pull [pkg] [account]    pulls the package <pkg> from <account>
-   push [pkg] [account]    pushes the package <pkg> to <account>
-   release [pkg] [account] pushes and runs update on remote
-   sync [account] [pkg]    syncs from account <account> the package <pkg>
-   drop <account> [pkg]    drops all connections to account <account>
+   [pkg] accounts          prints the accounts of the packages in ${SELF_SOURCES}
+   [pkg] stage             stages the packages in ${SELF_SOURCES}
+   [pkg] pull [account]    pulls the package <pkg> from <account>
+   [pkg] push [account]    pushes the package <pkg> to <account>
+   [pkg] release [account] pushes and runs update on remote
+   [pkg] sync [account]    syncs from account <account> the package <pkg>
+   [pkg] drop <account>    drops all connections to account <account>
 
 package dependency commands:
-   depends [pkg]           install the dependencies of the package <pkg>
+   [pkg] depends           install the dependencies of the package <pkg>
 
-package bundle command:
-   bundles [pkg]           show the packaged versions of [pkg]
-   cleanup [pkg]           cleanups old bundled versions
-   package [pkg] [version] packages the package bundle for <pkg>
+package bundle (version of a package) command:
+   [pkg] bundles           show the bundled package versions of [pkg]
+   [pkg] cleanup           cleanups old bundled versions
+   [pkg] package [version] packages the package bundle for <pkg>
 
 package install and uninstall commands:
-   install [pkg] [version] releases the package version
-   delete [pkg]            deletes the package <pkg> from the directory tree
-   update [pkg]            updates the package <pkg> in the directory tree
+   [pkg] install [version] releases the package version
+   [pkg] delete            deletes the package <pkg> from the directory tree
+   [pkg] update            updates the package <pkg> in the directory tree
 
 package specific commands
-   command <pkg>           shows the commands of the package <pkg>
+   [pkg] commands          shows the commands of the package <pkg>
    <pkg> <cmd> <arg>       executes the command <cmd> of package <pkg>
 ENDHELP
 	fi
@@ -310,82 +310,39 @@ command:root() {
 
 #------------------------------------------------------------------------------
 command:info() {
-	local PACKAGE=${1}; shift;
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
 	info "${PACKAGE} - $@"
 }
 
 #------------------------------------------------------------------------------
 command:warn() {
-	local PACKAGE=${1}; shift;
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
 	warn "${PACKAGE} - $@"
 }
 
 #------------------------------------------------------------------------------
 command:fatal() {
-	local PACKAGE=${1}; shift;
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
 	fatal "${PACKAGE} - $@"
 }
 
 #------------------------------------------------------------------------------
 command:worktree() {
-	local PACKAGE=${1};
-	if [ -z "$PACKAGE" ]; then
-		local WORKTREE=$(git rev-parse --show-toplevel 2> /dev/null)
-		if test -d $WORKTREE/.$SELF; then
-			echo "$WORKTREE"
-		else
-			return 1
-		fi
-	elif test -d "$SELF_SOURCES/$PACKAGE/.$SELF"; then
-		echo "$SELF_SOURCES/$PACKAGE"
-	elif test -d "$SELF_SOURCES/$SELF-$PACKAGE"; then
-		echo "$SELF_SOURCES/$SELF-$PACKAGE"
-	else
-		local WORKTREE=$(git rev-parse --show-toplevel 2> /dev/null)
-		if [ -f "${WORKTREE}/.${SELF}/identity" ]; then
-			local IDENTITY=$(cat "${WORKTREE}/.${SELF}/identity" | sed 's/^rpk-//')
-		else
-			local IDENTITY=$(basename "${WORKTREE}" | sed 's/^rpk-//')
-		fi
-
-		if [ "$PACKAGE" = "$IDENTITY" ]; then
-			if test -f $WORKTREE/.$SELF; then
-				echo "$WORKTREE"
-			else
-				return 1
-			fi
-		else
-			warn "no worktree found $PACKAGE"
-			return 1
-		fi
-	fi
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
+	echo $WORKTREE
 	return 0
 }
 
 #------------------------------------------------------------------------------
 command:identity() {
-	local PACKAGE=$1
-	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	local WORKTREE=$(command:worktree "$PACKAGE")
-	if [ ! -z "$WORKTREE" -a -d "$WORKTREE" ]; then
-		pushd $WORKTREE > /dev/null
-		local REPO_WORKTREE=$(git rev-parse --show-toplevel 2> /dev/null)
-		if [ -f "${REPO_WORKTREE}/.${SELF}/identity" ]; then
-			cat "${REPO_WORKTREE}/.${SELF}/identity" | sed 's/^rpk-//'
-		else
-			basename "${REPO_WORKTREE}" | sed 's/^rpk-//'
-		fi
-		popd > /dev/null
-	else
-		fatal "identity - package $PACKAGE has no worktree - please stage it"
-	fi
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
+	echo $PACKAGE
+	return 0
 }
 
 #------------------------------------------------------------------------------
 command:version() {
-	local PACKAGE=$1
-	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	local WORKTREE=$(command:worktree "$PACKAGE")
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
 	if [ -n "$WORKTREE" ] && [ -d "$WORKTREE" ]; then
 		pushd $WORKTREE > /dev/null
 		test -z "$PACKAGE" && PACKAGE=$(command:identity)
@@ -403,10 +360,7 @@ command:version() {
 
 #------------------------------------------------------------------------------
 command:versions() {
-	local PACKAGE=$1
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	local WORKTREE=$(command:worktree "$PACKAGE")
-	test -z "$WORKTREE" && fatal "versions - package $PACKAGE has no worktree - please stage it"
 	if [ -z "$PACKAGE" ]; then
 		test -z "$WORKTREE" || local PACKAGE=$(command:identity)
 	fi
@@ -416,7 +370,7 @@ command:versions() {
 		if [ -x .$SELF/versions ]; then
 			.$SELF/versions | sort --unique --version-sort
 		elif [ -f .$SELF/versions ]; then
-			cat .$SELF/versions | sort --unique --version-sort
+			cat .$SELF/versions | cut --fields=1 | sort --unique --version-sort
 		fi
 		popd > /dev/null
 	fi
@@ -518,11 +472,17 @@ command:patch() {
 		local NEW="0.0.1"
 	fi
 
-	echo "$NEW" | tee -a versions > /dev/null
-	git add versions && git commit -m "updated version to $NEW" versions || { popd > /dev/null; fatal "failed to commit version"; }
+	local HASH=$(git rev-parse HEAD)
+	echo "$NEW" | tee -a .$SELF/versions > /dev/null
+	git add .$SELF/versions && git commit -m "updated version to $NEW" .$SELF/versions || { popd > /dev/null; fatal "failed to commit version"; }
 	git tag -a v$NEW -m "Version $NEW release" || { popd > /dev/null; fatal "failed to tag version"; }
 	push:branches local || true
 	popd > /dev/null
+}
+
+#------------------------------------------------------------------------------
+command:hash() {
+	echo $PACKAGE | sha256	
 }
 
 #------------------------------------------------------------------------------
@@ -1340,74 +1300,47 @@ command:delete() {
 
 #------------------------------------------------------------------------------
 command:update() {
-	local PACKAGE=${1}
-	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
 	if [ -z "$PACKAGE" ]; then
-		local WORKTREE=$(command:worktree)
-		if [ -z "$WORKTREE" ]; then
-			if [ "$EUID" -eq 0 ]; then
-				info "updating all user and system packages"
-				for PACKAGE in $(command:list); do
-					command:stage $PACKAGE
-					if $(command:version $PACKAGE > /dev/null); then
-						command:update $PACKAGE
-					fi
-				done
-			else
-				info "updating all user packages"
-				for PACKAGE in $(command:user); do
-					command:stage $PACKAGE
-					if $(command:version $PACKAGE > /dev/null); then
-						command:update $PACKAGE
-					fi
-				done
-			fi
-			return 0
+		if [ "$EUID" -eq 0 ]; then
+			info "updating all user and system packages"
+			for PACKAGE in $(command:list); do
+				command:stage $PACKAGE
+				if $(command:version $PACKAGE > /dev/null); then
+					command:update $PACKAGE
+				fi
+			done
 		else
-			pushd $WORKTREE > /dev/null
-			local PACKAGE=$(command:identity)
-			popd > /dev/null
+			info "updating all user packages"
+			for PACKAGE in $(command:user); do
+				command:stage $PACKAGE
+				if $(command:version $PACKAGE > /dev/null); then
+					command:update $PACKAGE
+				fi
+			done
 		fi
+		return 0
 	else
-		local WORKTREE=$(command:worktree "$PACKAGE")
 		if [ -z "$WORKTREE" ]; then
 			info "package $PACKAGE not staged, staging now"
 			command:stage "$PACKAGE"
-			local WORKTREE=$(command:worktree "$PACKAGE")
+		else
+			pushd $WORKTREE > /dev/null
+			if $(command:version $PACKAGE > /dev/null); then
+        	        	command:stage $PACKAGE
+				local VERSION=$(command:versions $PACKAGE | tail -1)
+				command:install $PACKAGE $VERSION
+			else
+				warn "package $PACKAGE is not installed"
+			fi
+			popd > /dev/null
 		fi
 	fi
-		
-	pushd $WORKTREE > /dev/null
-	if $(command:version $PACKAGE > /dev/null); then
-                command:stage $PACKAGE
-		local VERSION=$(command:versions $PACKAGE | tail -1)
-		command:install $PACKAGE $VERSION
-	else
-		warn "package $PACKAGE is not installed"
-	fi
-	popd > /dev/null
 }
 
 #------------------------------------------------------------------------------
-command:command() {
-	local PACKAGE=${1};
-	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	local WORKTREE=$(command:worktree "$PACKAGE")
-	test -z "$WORKTREE" && fatal "command - package $PACKAGE has no worktree - please stage it"
-	local COMMAND=${2}
-	
-	if [ -z "$COMMAND" ]; then
-		if [ -d $WORKTREE/command ]; then
-			ls -1 $WORKTREE/command
-		fi
-        
-	elif [ -x $WORKTREE/command/$COMMAND ]; then
-		pushd $WORKTREE > /dev/null
-		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
-		./command/$COMMAND ${@:3}
-		popd > /dev/null
-	else
-		fatal "$PACKAGE - unknown package command ${@:2}"
+command:commands() {
+	if [ -d $WORKTREE/command ]; then
+		ls -1 $WORKTREE/command
 	fi
 }
 
@@ -1416,6 +1349,25 @@ command:command() {
 if [[ $# == 0 ]]; then
 	command:help
 	exit 0
+fi
+
+if command:list | grep -q $1; then
+	PACKAGE=$1
+	if test -d "$SELF_SOURCES/$PACKAGE/.$SELF"; then
+		WORKTREE="$SELF_SOURCES/$PACKAGE"
+		shift
+	elif test -d "$SELF_SOURCES/$SELF-$PACKAGE"; then
+		WORKTREE="$SELF_SOURCES/$SELF-$PACKAGE"
+		shift
+	fi
+elif git rev-parse --is-inside-work-tree > /dev/null 2> /dev/null; then
+	WORKTREE=$(git rev-parse --show-toplevel 2> /dev/null)
+	if [ -f "${WORKTREE}/.${SELF}/identity" ]; then
+		PACKAGE=$(cat "${WORKTREE}/.${SELF}/identity" | sed 's/^rpk-//')
+	else
+		PACKAGE=$(basename "${WORKTREE}" | sed 's/^rpk-//')
+	fi
+	validate_package_name "$PACKAGE"
 fi
 
 # If this is a builtin command, execute it, otherwise fall through
@@ -1429,8 +1381,19 @@ if has command $1; then
 	debug "executing command:$1 ${@:2}"
 	command:$1 "${@:2}" # array slice skipping first element
 	exit $?
-elif command:list | grep --quiet ^$1$; then
-	command:command $1 "${@:2}"
-else
+elif [ -z "$PACKAGE" ]; then
 	fatal "unknown command: ${@}"
+elif command:list | grep --quiet ^$PACKAGE$; then
+	COMMAND=$1
+	if [ -z "$COMMAND" ]; then
+		fatal "$PACKAGE - please specify a command"
+	elif [ -x $WORKTREE/command/$COMMAND ]; then
+		pushd $WORKTREE > /dev/null
+                ./command/$COMMAND ${@:3}
+		popd > /dev/null
+	else
+		fatal "$PACKAGE - unknown package command ${@:2}"
+	fi
+else
+	fatal "unknown package: ${@}"
 fi
