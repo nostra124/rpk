@@ -23,12 +23,8 @@ else
 	die "version $VERSION has no valid tag"
 fi
 
-mkdir -pv $TARGET/bin
-mkdir -pv $TARGET/etc
-
-# use rsync
-rsync -av $SOURCE/bin   $TARGET
-rsync -av $SOURCE/etc   $TARGET
-rsync -av $SOURCE/share $TARGET
+./configure --prefix=$TARGET
+make
+make install
 
 git checkout $BRANCH --force

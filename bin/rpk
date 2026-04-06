@@ -516,21 +516,17 @@ command:upgrade() {
 			;;
 		macos)
 			which stow || command:action port install stow
-			command:action port selfupdate
-			command:action port upgrade outdated
+			command:action sudo port selfupdate
+			command:action sudo port upgrade outdated
 			;;
 	esac
 }
 
 #------------------------------------------------------------------------------
 command:init() {
-	local WORKTREE=$(git rev-parse --show-toplevel 2> /dev/null)
-	local REPO_NAME=$(basename "$WORKTREE")
-	test -z "$WORKTREE" && fatal "we are not in a git repository"
+	local REPO_NAME=$(command:identity)
 	pushd "$WORKTREE" > /dev/null
-	
 	mkdir -p "$SELF_REPO"
-	
 	if git remote | grep -q "^local$"; then
 		info "local remote already exists"
 	else
@@ -576,6 +572,10 @@ if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
 else
 	die "version \$VERSION has no valid tag"
 fi
+
+./configure --prefix=\$TARGET
+make
+make install
 
 git checkout \$BRANCH --force
 EOF
