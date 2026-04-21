@@ -14,7 +14,7 @@ TEST_DIR := $(CURDIR)/t
 SCRIPTS := $(wildcard $(BIN_DIR)/*)
 MAN_PAGES := $(wildcard $(MAN_DIR)/*.1)
 DOC_FILES := $(wildcard $(DOC_DIR)/*.md)
-TEST_FILES := $(wildcard $(TEST_DIR)/*.t)
+TEST_FILES := $(wildcard $(TEST_DIR)/*.bats)
 
 INSTALL_PREFIX ?= $(HOME)/.local
 INSTALL_BIN ?= $(INSTALL_PREFIX)/bin
@@ -47,11 +47,12 @@ help:
 check: lint
 
 test:
-	@echo "Running tests..."
-	@for t in $(TEST_FILES); do \
-		echo "Testing $$t"; \
-		bash "$$t" || exit 1; \
-	done
+	@command -v bats >/dev/null 2>&1 || { echo "bats not installed — install with 'rpk rpk depends' or your package manager"; exit 1; }
+	@if [ -n "$(TEST_FILES)" ]; then \
+		bats $(TEST_FILES); \
+	else \
+		echo "no tests found in $(TEST_DIR)"; \
+	fi
 
 lint:
 	@echo "Linting scripts..."

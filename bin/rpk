@@ -96,13 +96,13 @@ STOW=$(which stow)
 rpk:bare() {
 	{
 		[ -d "$SELF_REPO" ] && ls -1 "$SELF_REPO"
-	} 2>/dev/null | sort -u | sed -z '$ s/\n$//'
+	} 2>/dev/null | sort -u
 }
 
 rpk:ssh-known-accounts() {
 	for ACCOUNT in $(ls -1 "$SELF_CONFIG/ssh" 2>/dev/null | sed 's/.pub//g'); do
 		test -f "$SELF_CONFIG/ssh/$ACCOUNT.pub" && echo "$ACCOUNT"
-	done | grep -v "^$USER$" | sort -u | sed -z '$ s/\n$//'
+	done | grep -v "^$USER$" | sort -u
 }
 
 rpk:account-config() {
@@ -653,7 +653,7 @@ command:list() {
 				echo "$REPO" | sed "s/$SELF-//g"
 			fi
 		fi
-	done } | sed -z '$ s/^\n$//'
+	done }
 }
 
 #------------------------------------------------------------------------------
@@ -971,7 +971,7 @@ command:bundles() {
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
 	test -z "$WORKTREE" && fatal "bundles - package $PACKAGE has no worktree - please stage it"
 	pushd "$WORKTREE" > /dev/null
-	ls -1 "$(command:bundle "$(command:type)")" | grep "^$PACKAGE-" | sed -z '$ s/^\n$//'
+	ls -1 "$(command:bundle "$(command:type)")" | grep "^$PACKAGE-"
 	popd > /dev/null
 }
 
