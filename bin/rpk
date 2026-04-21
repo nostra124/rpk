@@ -184,8 +184,7 @@ available commands:
    [pkg] fatal <msg>       print a (fatal) error message for package <pkg>
 
 package version commands:
-   [pkg] identity          print the identity of <pkg> 
-   version                 print the version of $SELF
+   [pkg] identity          print the identity of <pkg>
    [pkg] version           print the current installed version of <pkg>
    [pkg] versions          lists all installable versions of <pkg>
 
@@ -193,7 +192,7 @@ package version commands:
    [pkg] minor             commits a new minor version for the package
    [pkg] patch             commits a new patch version for the package
 
-   changelog <version>     get the changelog for the respective version
+   [pkg] changelog [version]   get the changelog for the respective version
 
 system commands:
    platform                prints the platform name of the base system
@@ -203,8 +202,6 @@ system commands:
 package query commands:
    [pkg] type              shows the package type (system|user)
    list                    lists all available packages in ${SELF_SOURCES}
-   system                  lists all system wide installable packages
-   user                    lists all user installable packages
    [pkg] show              shows all info available regarding <pkg>
 
 package synchronisation commands:
@@ -552,32 +549,32 @@ command:init() {
 #!/bin/bash
 
 function die() {
-	echo "\$@"
+	echo "$@"
 	exit 100
 }
 
 SOURCE=$(git rev-parse --show-toplevel 2> /dev/null)
-PACKAGE=$($SELF identity)
+PACKAGE=$("$SOURCE/bin/rpk" identity)
 VERSION=$1
 
-test -z "\$VERSION" && VERSION=$($SELF versions | tail -1)
-TARGET=$($SELF bundle user)/\$PACKAGE-\$VERSION
+test -z "$VERSION" && VERSION=$("$SOURCE/bin/rpk" versions | tail -1)
+
+COMMIT=$("$SOURCE/bin/rpk" commit "$VERSION")
+test -z "$COMMIT" && die "version $VERSION has no commit hash"
+
+TARGET=$("$SOURCE/bin/rpk" bundle "$("$SOURCE/bin/rpk" type)")/$PACKAGE-$VERSION
 
 BRANCH=$(git branch --show-current)
-trap "git checkout \$BRANCH --force" EXIT
+trap "git checkout $BRANCH --force" EXIT
 
-if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
-	git config advice.detachedHead false
-	git checkout v$VERSION
-else
-	die "version \$VERSION has no valid tag"
-fi
+git config advice.detachedHead false
+git checkout "$COMMIT" || die "failed to checkout $COMMIT for version $VERSION"
 
-./configure --prefix=\$TARGET
+./configure --prefix="$TARGET"
 make
 make install
 
-git checkout \$BRANCH --force
+git checkout "$BRANCH" --force
 EOF
 		chmod +x "$WORKTREE/.$SELF/package"
 	fi
@@ -593,9 +590,7 @@ EOF
 
 #------------------------------------------------------------------------------
 command:type() {
-	local PACKAGE=${1};
-	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	local WORKTREE=$(command:worktree "$PACKAGE")
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
 	test -z "$WORKTREE" && fatal "type - package $PACKAGE has no worktree - please stage it"
 	if [ -f "$WORKTREE/.$SELF/$SELF-type" ]; then
 		cat "$WORKTREE/.$SELF/$SELF-type"
@@ -626,298 +621,199 @@ command:list() {
 }
 
 #------------------------------------------------------------------------------
-command:system() {
-	for PACKAGE in $(command:list); do
-		test "$(command:type $PACKAGE)" = "system" && echo -e "$PACKAGE"
-	done | sed -z '$ s/^\n$//'
-}
-
-#------------------------------------------------------------------------------
-command:user() {
-	for PACKAGE in $(command:list); do
-		test "$(command:type $PACKAGE)" = "user" && echo -e "$PACKAGE"
-	done | sed -z '$ s/^\n$//'
-}
-
-#------------------------------------------------------------------------------
 command:show() {
-	local PACKAGE=${1}
-	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	local WORKTREE=$(command:worktree "$PACKAGE")
-	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
-		for PACKAGE in $(command:list); do
-			command:show $PACKAGE
-			echo -e ""
-		done
-		return 0
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
+	test -z "$WORKTREE" && fatal "show - package $PACKAGE has no worktree - please stage it"
+	if [ -d "$WORKTREE/.$SELF/depends" ]; then
+		local DEPENDS=$(ls -1 "$WORKTREE/.$SELF/depends" | tr '\n' ';' | sed 's/;$//')
 	else
-		test -z "$WORKTREE" && fatal "show - package $PACKAGE has no worktree - please stage it"
-		pushd $WORKTREE > /dev/null
-		local PACKAGE=$(command:identity)
-		if [ -d $WORKTREE/.$SELF/depends ]; then
-			local DEPENDS=$(ls -1 $WORKTREE/.$SELF/depends | tr '\n' ';' | sed 's/;$//')
-		else
-			local DEPENDS=""
-		fi
-		popd > /dev/null
-		echo -e "Name:\t\t$PACKAGE"
-		echo -e "Worktree:\t$WORKTREE"
-		echo -e "Depends:\t$DEPENDS"
-		echo -e "Versions:\t$(command:versions $PACKAGE | tr '\n' ';' | sed 's/;$//')"
-		echo -e "Version:\t$(command:version $PACKAGE)"
-		echo -e "Type:\t\t$(command:type $PACKAGE)"
+		local DEPENDS=""
 	fi
+	echo -e "Name:\t\t$PACKAGE"
+	echo -e "Worktree:\t$WORKTREE"
+	echo -e "Depends:\t$DEPENDS"
+	echo -e "Versions:\t$(command:versions | tr '\n' ';' | sed 's/;$//')"
+	echo -e "Version:\t$(command:version)"
+	echo -e "Type:\t\t$(command:type)"
 }
 
 #------------------------------------------------------------------------------
 command:accounts() {
-	local PACKAGE=${1};
-	local WORKTREE=$(command:worktree $PACKAGE)
-	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
-		for PACKAGE in $(command:list); do
-			command:accounts $PACKAGE
-		done | sort -u
-	else
-		test -z "$WORKTREE" && fatal "accounts - package $PACKAGE has no worktree - please stage it"
-		pushd $WORKTREE > /dev/null
-		git remote | grep @
-		popd > /dev/null
-	fi
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
+	test -z "$WORKTREE" && fatal "accounts - package $PACKAGE has no worktree - please stage it"
+	pushd "$WORKTREE" > /dev/null
+	git remote | grep @
+	popd > /dev/null
 }
 
 #------------------------------------------------------------------------------
 command:stage() {
-	if [ "$#" -eq 0 ]; then
-		command:stage $(command:list)
-	else
-		for PACKAGE in "$@"; do
-			[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-			local WORKTREE=$(command:worktree "$PACKAGE")
-			if [ -z "$WORKTREE" ]; then
-				if [ -d "$SELF_REPO/$PACKAGE" ]; then
-				        local WORKTREE="$SELF_SOURCES/$PACKAGE"
-        				local BARE_REPO="$SELF_REPO/$PACKAGE"
-				elif [ -d "$SELF_REPO/$SELF-$PACKAGE" ]; then
-					local WORKTREE="$SELF_SOURCES/$SELF-$PACKAGE"
-					local BARE_REPO="$SELF_REPO/$SELF-$PACKAGE"
-				else
-					fatal "$PACKAGE - no bare repository found"
-				fi
-       
-				info "$PACKAGE - staging local package repository $WORKTREE" 
-				debug "stage: REPO=$REPO WORKTREE=$WORKTREE BARE_REPO=$BARE_REPO"
-				[ -d "$WORKTREE" -a ! -d "$WORKTREE/.git" ] && rm -rf "$WORKTREE"
-        
-				if [ -d "$WORKTREE" ]; then
-					pushd "$WORKTREE" > /dev/null
-					git remote remove local 2>/dev/null || true
-					git remote add local "$BARE_REPO" 2>/dev/null || true
-					popd > /dev/null
-				else
-					debug "cloning $BARE_REPO to $WORKTREE"
-					if ! git clone "$BARE_REPO" "$WORKTREE" 2>&1; then
-						fatal "failed to clone repository $BARE_REPO"
-					fi
-					
-					pushd "$WORKTREE" > /dev/null
-					git remote remove local 2>/dev/null || true
-					git remote add local "$BARE_REPO" 2>/dev/null || true
-					popd > /dev/null
-				fi
-			else
-				info "$PACKAGE - updating local package repository"
-				if [ -d "$SELF_REPO/$PACKAGE" ]; then
-					local BARE_REPO="$SELF_REPO/$PACKAGE"
-				elif [ -d "$SELF_REPO/$SELF-$PACKAGE" ]; then
-					local BARE_REPO="$SELF_REPO/$SELF-$PACKAGE"
-				else
-					fatal "$PACKAGE - no bare repository found"
-				fi
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
 
-				pushd "$WORKTREE" > /dev/null
-				git remote remove local 2>/dev/null || true
-				git remote add local "$BARE_REPO" 2>&1 || warn "failed to add local remote"
-				git fetch --tags local
-				git pull local "$(git rev-parse --abbrev-ref HEAD)"
-				popd > /dev/null
-			fi
-		done
+	local BARE_REPO
+	if [ -d "$SELF_REPO/$PACKAGE" ]; then
+		BARE_REPO="$SELF_REPO/$PACKAGE"
+		[ -z "$WORKTREE" ] && WORKTREE="$SELF_SOURCES/$PACKAGE"
+	elif [ -d "$SELF_REPO/$SELF-$PACKAGE" ]; then
+		BARE_REPO="$SELF_REPO/$SELF-$PACKAGE"
+		[ -z "$WORKTREE" ] && WORKTREE="$SELF_SOURCES/$SELF-$PACKAGE"
+	else
+		fatal "$PACKAGE - no bare repository found"
+	fi
+
+	[ -d "$WORKTREE" ] && [ ! -d "$WORKTREE/.git" ] && rm -rf "$WORKTREE"
+
+	if [ ! -d "$WORKTREE" ]; then
+		info "$PACKAGE - staging local package repository $WORKTREE"
+		debug "stage: WORKTREE=$WORKTREE BARE_REPO=$BARE_REPO"
+		if ! git clone "$BARE_REPO" "$WORKTREE" 2>&1; then
+			fatal "failed to clone repository $BARE_REPO"
+		fi
+		pushd "$WORKTREE" > /dev/null
+		git remote remove local 2>/dev/null || true
+		git remote add local "$BARE_REPO" 2>/dev/null || true
+		popd > /dev/null
+	else
+		info "$PACKAGE - updating local package repository"
+		pushd "$WORKTREE" > /dev/null
+		git remote remove local 2>/dev/null || true
+		git remote add local "$BARE_REPO" 2>&1 || warn "failed to add local remote"
+		git fetch --tags local
+		git pull local "$(git rev-parse --abbrev-ref HEAD)"
+		popd > /dev/null
 	fi
 }
 
 #------------------------------------------------------------------------------
 command:pull() {
-	local PACKAGE=${1}
-	shift
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
+	test -z "$WORKTREE" && fatal "pull - package $PACKAGE has no worktree - please stage it"
 	local ACCOUNTS=("$@")
-	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
 	for ACCOUNT in "${ACCOUNTS[@]}"; do
 		[ -n "$ACCOUNT" ] && validate_account_name "$ACCOUNT"
 	done
-	local WORKTREE=$(command:worktree "$PACKAGE")
-	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
-		for PACKAGE in $(command:list); do
-			command:pull "$PACKAGE" "${ACCOUNTS[@]}"
+
+	pushd "$WORKTREE" > /dev/null
+	local BRANCH=$(git rev-parse --abbrev-ref HEAD)
+	if [ ${#ACCOUNTS[@]} -eq 0 ]; then
+		git fetch --tags local || { popd > /dev/null; fatal "failed to fetch from local"; }
+		git merge "local/$BRANCH" || { popd > /dev/null; fatal "failed to merge from local"; }
+		for REMOTE in $(git remote | grep '@'); do
+			ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || continue
+			info "pulling from $REMOTE"
+			git fetch --tags "$REMOTE" || warn "failed to fetch from $REMOTE"
+			git merge "$REMOTE/$BRANCH" || warn "failed to merge from $REMOTE"
 		done
 	else
-		test -z "$WORKTREE" && fatal "pull - package $PACKAGE has no worktree - please stage it"
-		pushd "$WORKTREE" > /dev/null
-		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
-		
-		local BRANCH=$(git rev-parse --abbrev-ref HEAD)
-		
-		if [ ${#ACCOUNTS[@]} -eq 0 ]; then
-			git fetch --tags local || { popd > /dev/null; fatal "failed to fetch from local"; }
-			git merge "local/$BRANCH" || { popd > /dev/null; fatal "failed to merge from local"; }
-			for REMOTE in $(git remote | grep '@'); do
-				ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || continue
-				info "pulling from $REMOTE"
-				git fetch --tags "$REMOTE" || warn "failed to fetch from $REMOTE"
-				git merge "$REMOTE/$BRANCH" || warn "failed to merge from $REMOTE"
-			done
-		else
-			for ACCOUNT in "${ACCOUNTS[@]}"; do
-				if ssh "$ACCOUNT" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
-					ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
-					info "pulling from $ACCOUNT"
-					git fetch --tags "$ACCOUNT" || warn "failed to fetch from $ACCOUNT"
-					git merge "$ACCOUNT/$BRANCH" || warn "failed to merge from $ACCOUNT"
-				else
-					warn "remote bare repo $ACCOUNT:~/.local/var/lib/repo/$PACKAGE does not exist"
-				fi
-			done
-		fi
-		popd > /dev/null
+		for ACCOUNT in "${ACCOUNTS[@]}"; do
+			if ssh "$ACCOUNT" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
+				ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
+				info "pulling from $ACCOUNT"
+				git fetch --tags "$ACCOUNT" || warn "failed to fetch from $ACCOUNT"
+				git merge "$ACCOUNT/$BRANCH" || warn "failed to merge from $ACCOUNT"
+			else
+				warn "remote bare repo $ACCOUNT:~/.local/var/lib/repo/$PACKAGE does not exist"
+			fi
+		done
 	fi
+	popd > /dev/null
 }
 
 #------------------------------------------------------------------------------
 command:push() {
-	local PACKAGE=${1}
-	shift
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
+	test -z "$WORKTREE" && fatal "push - package $PACKAGE has no worktree - please stage it"
 	local ACCOUNTS=("$@")
-	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
 	for ACCOUNT in "${ACCOUNTS[@]}"; do
 		[ -n "$ACCOUNT" ] && validate_account_name "$ACCOUNT"
 	done
-	local WORKTREE=$(command:worktree "$PACKAGE")
-	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
-		for PACKAGE in $(command:list); do
-			command:push "$PACKAGE" "${ACCOUNTS[@]}"
+
+	pushd "$WORKTREE" > /dev/null
+	if [ ${#ACCOUNTS[@]} -eq 0 ]; then
+		git push -u local HEAD --tags || { popd > /dev/null; fatal "failed to push to local"; }
+		for REMOTE in $(git remote | grep '@'); do
+			if ssh "$REMOTE" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
+				ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || true
+				info "pushing to $REMOTE"
+				git push "$REMOTE" HEAD --tags || warn "failed to push to $REMOTE"
+			else
+				info "creating bare repo on $REMOTE"
+				ssh "$REMOTE" "mkdir -p ~/.local/var/lib/repo && git init --bare ~/.local/var/lib/repo/$PACKAGE" || warn "failed to create bare repo on $REMOTE"
+				ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || true
+				git push "$REMOTE" HEAD --tags || warn "failed to push to $REMOTE"
+			fi
 		done
 	else
-		test -z "$WORKTREE" && fatal "push - package $PACKAGE has no worktree - please stage it"
-		pushd "$WORKTREE" > /dev/null
-		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
-		
-		if [ ${#ACCOUNTS[@]} -eq 0 ]; then
-			git push -u local HEAD --tags || { popd > /dev/null; fatal "failed to push to local"; }
-			for REMOTE in $(git remote | grep '@'); do
-				if ssh "$REMOTE" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
-					ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || true
-					info "pushing to $REMOTE"
-					git push "$REMOTE" HEAD --tags || warn "failed to push to $REMOTE"
-				else
-					info "creating bare repo on $REMOTE"
-					ssh "$REMOTE" "mkdir -p ~/.local/var/lib/repo && git init --bare ~/.local/var/lib/repo/$PACKAGE" || warn "failed to create bare repo on $REMOTE"
-					ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || true
-					git push "$REMOTE" HEAD --tags || warn "failed to push to $REMOTE"
-				fi
-			done
-		else
-			for ACCOUNT in "${ACCOUNTS[@]}"; do
-				if ssh "$ACCOUNT" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
-					ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
-					info "pushing to $ACCOUNT"
-					git push "$ACCOUNT" HEAD --tags || warn "failed to push to $ACCOUNT"
-				else
-					info "creating bare repo on $ACCOUNT"
-					ssh "$ACCOUNT" "mkdir -p ~/.local/var/lib/repo && git init --bare ~/.local/var/lib/repo/$PACKAGE" || warn "failed to create bare repo on $ACCOUNT"
-					ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
-					git push "$ACCOUNT" HEAD --tags || warn "failed to push to $ACCOUNT"
-				fi
-			done
-		fi
-		popd > /dev/null
+		for ACCOUNT in "${ACCOUNTS[@]}"; do
+			if ssh "$ACCOUNT" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
+				ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
+				info "pushing to $ACCOUNT"
+				git push "$ACCOUNT" HEAD --tags || warn "failed to push to $ACCOUNT"
+			else
+				info "creating bare repo on $ACCOUNT"
+				ssh "$ACCOUNT" "mkdir -p ~/.local/var/lib/repo && git init --bare ~/.local/var/lib/repo/$PACKAGE" || warn "failed to create bare repo on $ACCOUNT"
+				ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
+				git push "$ACCOUNT" HEAD --tags || warn "failed to push to $ACCOUNT"
+			fi
+		done
 	fi
+	popd > /dev/null
 }
 
 #------------------------------------------------------------------------------
 command:release() {
-	local PACKAGE=${1}
-	shift
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
+	test -z "$WORKTREE" && fatal "release - package $PACKAGE has no worktree - please stage it"
 	local ACCOUNTS=("$@")
-	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
 	for ACCOUNT in "${ACCOUNTS[@]}"; do
 		[ -n "$ACCOUNT" ] && validate_account_name "$ACCOUNT"
 	done
-	local WORKTREE=$(command:worktree "$PACKAGE")
-	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
-		for PACKAGE in $(command:list); do
-			command:release "$PACKAGE" "${ACCOUNTS[@]}"
+
+	pushd "$WORKTREE" > /dev/null
+	info "$PACKAGE - pushing to local (local bare repo)"
+	git push -u local HEAD --tags || { popd > /dev/null; fatal "failed to push to local"; }
+
+	if [ ${#ACCOUNTS[@]} -gt 0 ]; then
+		for ACCOUNT in "${ACCOUNTS[@]}"; do
+			if ssh "$ACCOUNT" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
+				ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
+				info "$PACKAGE - pushing to $ACCOUNT (remote)"
+				git push "$ACCOUNT" HEAD --tags || warn "$PACKAGE - failed to push to $ACCOUNT"
+			else
+				info "$PACKAGE - creating bare repo on $ACCOUNT"
+				ssh "$ACCOUNT" "mkdir -p ~/.local/var/lib/repo && git init --bare ~/.local/var/lib/repo/$PACKAGE" || warn "$PACKAGE - failed to create bare repo on $ACCOUNT"
+				ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
+				git push "$ACCOUNT" HEAD --tags || warn "$PACKAGE - failed to push to $ACCOUNT"
+			fi
+
+			info "$PACKAGE - uploading rpk to $ACCOUNT"
+			scp "$0" "$ACCOUNT:/tmp/rpk" || warn "$PACKAGE - failed to upload rpk to $ACCOUNT"
+
+			info "$PACKAGE - running update on $ACCOUNT"
+			ssh "$ACCOUNT" "/tmp/rpk $PACKAGE update" || warn "$PACKAGE - failed to update on $ACCOUNT"
 		done
 	else
-		test -z "$WORKTREE" && fatal "release - package $PACKAGE has no worktree - please stage it"
-		pushd "$WORKTREE" > /dev/null
-		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
-		
-		info "$PACKAGE - pushing to local (local bare repo)"
-		git push -u local HEAD --tags || { popd > /dev/null; fatal "failed to push to local"; }
-		
-		if [ ${#ACCOUNTS[@]} -gt 0 ]; then
-			for ACCOUNT in "${ACCOUNTS[@]}"; do
-				if ssh "$ACCOUNT" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
-					ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
-					info "$PACKAGE - pushing to $ACCOUNT (remote)"
-					git push "$ACCOUNT" HEAD --tags || warn "$PACKAGE - failed to push to $ACCOUNT"
-					
-					info "$PACKAGE - uploading rpk to $ACCOUNT"
-					scp "$0" "$ACCOUNT:/tmp/rpk" || warn "$PACKAGE - failed to upload rpk to $ACCOUNT"
-					
-					info "$PACKAGE - running update on $ACCOUNT"
-					ssh "$ACCOUNT" "/tmp/rpk update $PACKAGE" || warn "$PACKAGE - failed to update on $ACCOUNT"
-				else
-					info "$PACKAGE - creating bare repo on $ACCOUNT"
-					ssh "$ACCOUNT" "mkdir -p ~/.local/var/lib/repo && git init --bare ~/.local/var/lib/repo/$PACKAGE" || warn "$PACKAGE - failed to create bare repo on $ACCOUNT"
-					ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
-					git push "$ACCOUNT" HEAD --tags || warn "$PACKAGE - failed to push to $ACCOUNT"
-					
-					info "$PACKAGE - uploading rpk to $ACCOUNT"
-					scp "$0" "$ACCOUNT:/tmp/rpk" || warn "$PACKAGE - failed to upload rpk to $ACCOUNT"
-					
-					info "$PACKAGE - running update on $ACCOUNT"
-					ssh "$ACCOUNT" "/tmp/rpk update $PACKAGE" || warn "$PACKAGE - failed to update on $ACCOUNT"
-				fi
-			done
-		else
-			for REMOTE in $(git remote | grep '@'); do
-				if ssh "$REMOTE" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
-					ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || continue
-					info "$PACKAGE - pushing to $REMOTE (remote)"
-					git push "$REMOTE" HEAD --tags || warn "$PACKAGE - failed to push to $REMOTE"
-					
-					info "$PACKAGE - uploading rpk to $REMOTE"
-					scp "$0" "$REMOTE:/tmp/rpk" || warn "$PACKAGE - failed to upload rpk to $REMOTE"
-					
-					info "$PACKAGE - running update on $REMOTE"
-					ssh "$REMOTE" "/tmp/rpk update $PACKAGE" || warn "$PACKAGE - failed to update on $REMOTE"
-				else
-					info "$PACKAGE - creating bare repo on $REMOTE"
-					ssh "$REMOTE" "mkdir -p ~/.local/var/lib/repo && git init --bare ~/.local/var/lib/repo/$PACKAGE" || warn "$PACKAGE - failed to create bare repo on $REMOTE"
-					ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || true
-					git push "$REMOTE" HEAD --tags || warn "$PACKAGE - failed to push to $REMOTE"
-					
-					info "$PACKAGE - uploading rpk to $REMOTE"
-					scp "$0" "$REMOTE:/tmp/rpk" || warn "$PACKAGE - failed to upload rpk to $REMOTE"
-					
-					info "$PACKAGE - running update on $REMOTE"
-					ssh "$REMOTE" "/tmp/rpk update $PACKAGE" || warn "$PACKAGE - failed to update on $REMOTE"
-				fi
-			done
-		fi
-		
-		popd > /dev/null
+		for REMOTE in $(git remote | grep '@'); do
+			if ssh "$REMOTE" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
+				ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || continue
+				info "$PACKAGE - pushing to $REMOTE (remote)"
+				git push "$REMOTE" HEAD --tags || warn "$PACKAGE - failed to push to $REMOTE"
+			else
+				info "$PACKAGE - creating bare repo on $REMOTE"
+				ssh "$REMOTE" "mkdir -p ~/.local/var/lib/repo && git init --bare ~/.local/var/lib/repo/$PACKAGE" || warn "$PACKAGE - failed to create bare repo on $REMOTE"
+				ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || true
+				git push "$REMOTE" HEAD --tags || warn "$PACKAGE - failed to push to $REMOTE"
+			fi
+
+			info "$PACKAGE - uploading rpk to $REMOTE"
+			scp "$0" "$REMOTE:/tmp/rpk" || warn "$PACKAGE - failed to upload rpk to $REMOTE"
+
+			info "$PACKAGE - running update on $REMOTE"
+			ssh "$REMOTE" "/tmp/rpk $PACKAGE update" || warn "$PACKAGE - failed to update on $REMOTE"
+		done
 	fi
+
+	popd > /dev/null
 }
 
 #------------------------------------------------------------------------------
@@ -959,93 +855,76 @@ push:branches() {
 
 #------------------------------------------------------------------------------
 command:sync() {
-	local ACCOUNT=${1}
-	local PACKAGE=${2}
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
+	local ACCOUNT=$1
 	[ -n "$ACCOUNT" ] && validate_account_name "$ACCOUNT"
-	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
 	local ACCOUNT_CONFIG=$(rpk:account-config)
 
 	if [ -z "$ACCOUNT" ]; then
-		for PACKAGE in $(command:list); do
-			command:stage $PACKAGE
-		done
-
 		for ACCOUNT in $(rpk:ssh-known-accounts); do
 			command:sync "$ACCOUNT"
 		done
-	elif [ -d "$ACCOUNT_CONFIG/ssh/${ACCOUNT}.pub" ]; then
-		local WORKTREE=$(command:worktree $PACKAGE)
-		if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
-			for PACKAGE in $(ssh "$ACCOUNT" "$SELF" list 2>/dev/null); do
-				command:sync "$ACCOUNT" "$PACKAGE"
-			done
-		elif [ -z "$WORKTREE" ]; then
-			if ssh "$ACCOUNT" "$SELF" repo 2>/dev/null | grep -q "^${ACCOUNT}:.*$SELF-$PACKAGE$"; then
-				info "$PACKAGE - staging from remote account"
-				git clone "$ACCOUNT:$SELF_REPO/$SELF-$PACKAGE" "$SELF_SOURCES/$SELF-$PACKAGE" 2>/dev/null || \
-				ssh "$ACCOUNT" "git --git-dir=$SELF_REPO/$SELF-$PACKAGE" archive HEAD | tar -x -C "$SELF_SOURCES"
-			elif ssh "$ACCOUNT" "$SELF" repo 2>/dev/null | grep -q "^${ACCOUNT}:.*$PACKAGE$"; then
-				info "$PACKAGE - staging from remote account"
-				git clone "$ACCOUNT:$SELF_REPO/$PACKAGE" "$SELF_SOURCES/$PACKAGE" 2>/dev/null || \
-				ssh "$ACCOUNT" "git --git-dir=$SELF_REPO/$PACKAGE" archive HEAD | tar -x -C "$SELF_SOURCES"
-			else
-				fatal "repository for package $PACKAGE is not available at $ACCOUNT"
-			fi
-		elif [ -d "$WORKTREE" ]; then
-			pushd "$WORKTREE" > /dev/null
-			git stash && git clean -fd
-			git fetch --tags local
-			git merge local/$(git rev-parse --abbrev-ref HEAD)
-			git push -u local HEAD --tags
-			git fetch --tags "$ACCOUNT"
-			git merge "$ACCOUNT/$(git rev-parse --abbrev-ref HEAD)"
-			git push -u "$ACCOUNT" HEAD --tags
-			popd > /dev/null
-		else
-			fatal "$WORKTREE is not a directory"
-		fi
-	else
+		return 0
+	fi
+
+	if [ ! -f "$ACCOUNT_CONFIG/ssh/${ACCOUNT}.pub" ]; then
 		fatal "unknown account $ACCOUNT"
+	fi
+
+	if [ -z "$WORKTREE" ]; then
+		if ssh "$ACCOUNT" "$SELF" repo 2>/dev/null | grep -q "^${ACCOUNT}:.*$SELF-$PACKAGE$"; then
+			info "$PACKAGE - staging from remote account"
+			git clone "$ACCOUNT:$SELF_REPO/$SELF-$PACKAGE" "$SELF_SOURCES/$SELF-$PACKAGE" 2>/dev/null || \
+			ssh "$ACCOUNT" "git --git-dir=$SELF_REPO/$SELF-$PACKAGE" archive HEAD | tar -x -C "$SELF_SOURCES"
+		elif ssh "$ACCOUNT" "$SELF" repo 2>/dev/null | grep -q "^${ACCOUNT}:.*$PACKAGE$"; then
+			info "$PACKAGE - staging from remote account"
+			git clone "$ACCOUNT:$SELF_REPO/$PACKAGE" "$SELF_SOURCES/$PACKAGE" 2>/dev/null || \
+			ssh "$ACCOUNT" "git --git-dir=$SELF_REPO/$PACKAGE" archive HEAD | tar -x -C "$SELF_SOURCES"
+		else
+			fatal "repository for package $PACKAGE is not available at $ACCOUNT"
+		fi
+	elif [ -d "$WORKTREE" ]; then
+		pushd "$WORKTREE" > /dev/null
+		git stash && git clean -fd
+		git fetch --tags local
+		git merge "local/$(git rev-parse --abbrev-ref HEAD)"
+		git push -u local HEAD --tags
+		git fetch --tags "$ACCOUNT"
+		git merge "$ACCOUNT/$(git rev-parse --abbrev-ref HEAD)"
+		git push -u "$ACCOUNT" HEAD --tags
+		popd > /dev/null
+	else
+		fatal "$WORKTREE is not a directory"
 	fi
 }
 
 #------------------------------------------------------------------------------
 command:drop() {
-	local ACCOUNT=${1}; test -z "$ACCOUNT" && fatal "please specify an account"
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
+	test -z "$WORKTREE" && fatal "drop - package $PACKAGE has no worktree - please stage it"
+	local ACCOUNT=$1
+	test -z "$ACCOUNT" && fatal "please specify an account"
 	validate_account_name "$ACCOUNT"
-	local PACKAGE=${2}
-	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	local WORKTREE=$(command:worktree "$PACKAGE")
-	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
-		for PACKAGE in $(command:list); do
-			command:drop $ACCOUNT $PACKAGE
-		done
-	else
-		test -z "$WORKTREE" && fatal "drop - package $PACKAGE has no worktree - please stage it"
-		pushd $WORKTREE > /dev/null
-		if git remote | grep -q $ACCOUNT; then
-			git remote remove $ACCOUNT
-		fi
-		popd > /dev/null
+
+	pushd "$WORKTREE" > /dev/null
+	if git remote | grep -qxF -- "$ACCOUNT"; then
+		git remote remove "$ACCOUNT"
 	fi
+	popd > /dev/null
 }
 
 #------------------------------------------------------------------------------
 command:depends() {
-	local PACKAGE=${1};
-	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	local WORKTREE=$(command:worktree "$PACKAGE")
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
 	test -z "$WORKTREE" && fatal "depends - package $PACKAGE has no worktree - please stage it"
-	if [ -d $WORKTREE/.$SELF/depends ]; then
-		pushd $WORKTREE > /dev/null
-		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
-		if [ "$(command:type $PACKAGE)" = "system" ]; then
-			test $EUID -eq 0 || fatal "system packages dependencies have to be run as root user"
+	if [ -d "$WORKTREE/.$SELF/depends" ]; then
+		if [ "$(command:type)" = "system" ]; then
+			test "$EUID" -eq 0 || fatal "system packages dependencies have to be run as root user"
 		fi
-
-		for SCRIPT in $(ls -1 $WORKTREE/.$SELF/depends); do
+		pushd "$WORKTREE" > /dev/null
+		for SCRIPT in $(ls -1 "$WORKTREE/.$SELF/depends"); do
 			info "$PACKAGE - installing dependency $SCRIPT"
-			$WORKTREE/.$SELF/depends/$SCRIPT
+			"$WORKTREE/.$SELF/depends/$SCRIPT"
 		done
 		popd > /dev/null
 	fi
@@ -1053,64 +932,41 @@ command:depends() {
 
 #------------------------------------------------------------------------------
 command:bundles() {
-	local PACKAGE=${1}
-	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	local WORKTREE=$(command:worktree "$PACKAGE")
-	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
-		for PACKAGE in $(command:list); do
-			command:bundles $PACKAGE
-		done | sed -z '$ s/^\n$//'
-	else
-		test -z "$WORKTREE" && fatal "bundles - package $PACKAGE has no worktree - please stage it"
-		pushd $WORKTREE > /dev/null
-		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
-		ls -1 $(command:bundle $(command:type $PACKAGE))   | grep "^$PACKAGE-" | sed -z '$ s/^\n$//'
-		popd > /dev/null
-	fi
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
+	test -z "$WORKTREE" && fatal "bundles - package $PACKAGE has no worktree - please stage it"
+	pushd "$WORKTREE" > /dev/null
+	ls -1 "$(command:bundle "$(command:type)")" | grep "^$PACKAGE-" | sed -z '$ s/^\n$//'
+	popd > /dev/null
 }
 
 #------------------------------------------------------------------------------
 command:cleanup() {
-	local PACKAGE=${1}
-	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	local WORKTREE=$(command:worktree "$PACKAGE")
-	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
-		for PACKAGE in $(command:list); do
-			command:cleanup $PACKAGE
-		done
-	else
-		test -z "$WORKTREE" && fatal "cleanup - package $PACKAGE has no worktree - please stage it"
-		pushd $WORKTREE > /dev/null
-		test -z "$PACKAGE" && local PACKAGE=$(command:identity)
-		popd > /dev/null
-		local CURRENT=$(command:version $PACKAGE)
-		for PACKAGE_VERSION in $(command:bundles | grep "^$PACKAGE-"); do
-			if [[ ! ${PACKAGE_VERSION} =~ ${CURRENT}$ ]]; then
-				info "removing old version ${PACKAGE_VERSION}"
-				rm -rf $(command:bundle home)/${PACKAGE_VERSION}
-				if [ $EUID -eq 0 ]; then
-					rm -rf $(command:bundle system)/${PACKAGE_VERSION}
-				fi
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
+	test -z "$WORKTREE" && fatal "cleanup - package $PACKAGE has no worktree - please stage it"
+	local CURRENT=$(command:version)
+	for PACKAGE_VERSION in $(command:bundles); do
+		if [[ ! ${PACKAGE_VERSION} =~ ${CURRENT}$ ]]; then
+			info "removing old version ${PACKAGE_VERSION}"
+			rm -rf "$(command:bundle home)/${PACKAGE_VERSION}"
+			if [ "$EUID" -eq 0 ]; then
+				rm -rf "$(command:bundle system)/${PACKAGE_VERSION}"
 			fi
-		done
-	fi
+		fi
+	done
 }
 
 #------------------------------------------------------------------------------
 command:package() {
-	local PACKAGE=$1
-	local VERSION=$2
-	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	local WORKTREE=$(command:worktree "$PACKAGE")
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
 	test -z "$WORKTREE" && fatal "package - package $PACKAGE has no worktree - please stage it"
+	local VERSION=$1
 
-	pushd $WORKTREE > /dev/null
-	test -z "$PACKAGE" && local PACKAGE=$(command:identity)
+	pushd "$WORKTREE" > /dev/null
 	test -z "$VERSION" && local VERSION=$(command:versions | tail -1)
 
-	if [ -x .$SELF/package ]; then
+	if [ -x ".$SELF/package" ]; then
 		if [ "$(command:type)" = "system" ]; then
-			if [ $EUID -eq 0 ]; then
+			if [ "$EUID" -eq 0 ]; then
 				local PREFIX=$(command:bundle system)/$PACKAGE-$VERSION
 			else
 				fatal "system packages have to be packaged as root user"
@@ -1122,20 +978,21 @@ command:package() {
 		else
 			fatal "unknown $SELF type of package $PACKAGE"
 		fi
-		
-		if [ -d $PREFIX ]; then
-			if [ ! -n "$SELF_FORCE" ]; then
+
+		if [ -d "$PREFIX" ]; then
+			if [ -z "$SELF_FORCE" ]; then
 				info "package $PACKAGE: already packaged in $PREFIX"
+				popd > /dev/null
 				return 0
 			fi
 		fi
 
 		info "$PACKAGE - packaging into $PREFIX"
-		local OLDUMASK=$(umask); test $EUID -eq 0 && command:action umask 022
-		if .$SELF/package $VERSION; then
-			command:action umask $OLDUMASK; info  "$PACKAGE - package script successful"
+		local OLDUMASK=$(umask); test "$EUID" -eq 0 && command:action umask 022
+		if ".$SELF/package" "$VERSION"; then
+			command:action umask "$OLDUMASK"; info "$PACKAGE - package script successful"
 		else
-			command:action umask $OLDUMASK; fatal "$PACKAGE - package script failure"
+			command:action umask "$OLDUMASK"; fatal "$PACKAGE - package script failure"
 		fi
 	else
 		info "package $PACKAGE: no packaging script available"
@@ -1161,64 +1018,61 @@ ENDHELP
 
 #------------------------------------------------------------------------------
 command:install() {
-	local PACKAGE=$1;
-	local VERSION=$2;
-	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	local WORKTREE=$(command:worktree "$PACKAGE")
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
 	test -z "$WORKTREE" && fatal "install: package $PACKAGE has no worktree - please stage it"
+	local VERSION=$1
 
-	pushd $WORKTREE > /dev/null
-	test -z "$PACKAGE" && local PACKAGE=$(command:identity)
+	pushd "$WORKTREE" > /dev/null
 	test -z "$VERSION" && local VERSION=$(command:versions | tail -1)
 
-	local PACKAGE_TYPE=$(command:type $PACKAGE)
+	local PACKAGE_TYPE=$(command:type)
 	if [ "$PACKAGE_TYPE" = "system" ]; then
-		test $EUID -eq 0 || fatal "system packages have to be installed as root user"
+		test "$EUID" -eq 0 || fatal "system packages have to be installed as root user"
 	fi
 
-	if [ -x .$SELF/package ]; then
-		local PREFIX=$(command:bundle $PACKAGE_TYPE)/$PACKAGE-$VERSION
-		if [ ! -d $PREFIX ]; then
-			warn "install $PACKAGE: running $SELF package $PACKAGE $VERSION first"
-			command:package $PACKAGE $VERSION
+	if [ -x ".$SELF/package" ]; then
+		local PREFIX=$(command:bundle "$PACKAGE_TYPE")/$PACKAGE-$VERSION
+		if [ ! -d "$PREFIX" ]; then
+			warn "install $PACKAGE: running $SELF $PACKAGE package $VERSION first"
+			command:package "$VERSION"
 		fi
 
 		local HOME_TARGET=$(command:target home)
-		mkdir -p $HOME_TARGET/bin
-		mkdir -p $HOME_TARGET/etc
-		mkdir -p $HOME_TARGET/lib
-		mkdir -p $HOME_TARGET/libexec
-		mkdir -p $HOME_TARGET/share
-		mkdir -p $HOME_TARGET/var
-        
-		if [ $EUID -eq 0 ]; then
+		mkdir -p "$HOME_TARGET/bin"
+		mkdir -p "$HOME_TARGET/etc"
+		mkdir -p "$HOME_TARGET/lib"
+		mkdir -p "$HOME_TARGET/libexec"
+		mkdir -p "$HOME_TARGET/share"
+		mkdir -p "$HOME_TARGET/var"
+
+		if [ "$EUID" -eq 0 ]; then
 			local SYSTEM_TARGET=$(command:target system)
-			mkdir -p $SYSTEM_TARGET/bin
-			mkdir -p $SYSTEM_TARGET/etc
-			mkdir -p $SYSTEM_TARGET/lib
-			mkdir -p $SYSTEM_TARGET/libexec
-			mkdir -p $SYSTEM_TARGET/share
-			mkdir -p $SYSTEM_TARGET/var
+			mkdir -p "$SYSTEM_TARGET/bin"
+			mkdir -p "$SYSTEM_TARGET/etc"
+			mkdir -p "$SYSTEM_TARGET/lib"
+			mkdir -p "$SYSTEM_TARGET/libexec"
+			mkdir -p "$SYSTEM_TARGET/share"
+			mkdir -p "$SYSTEM_TARGET/var"
 		fi
 
-		for BUNDLED_PACKAGE in $(command:bundles $PACKAGE); do
-			pushd $(command:bundle $PACKAGE_TYPE) > /dev/null
-			command:action $STOW --target=$(command:target $PACKAGE_TYPE) --delete $BUNDLED_PACKAGE
+		for BUNDLED_PACKAGE in $(command:bundles); do
+			pushd "$(command:bundle "$PACKAGE_TYPE")" > /dev/null
+			command:action "$STOW" --target="$(command:target "$PACKAGE_TYPE")" --delete "$BUNDLED_PACKAGE"
 			popd > /dev/null
 		done
 
-		pushd $(command:bundle $PACKAGE_TYPE) > /dev/null
-		command:action $STOW --target=$(command:target $PACKAGE_TYPE) $PACKAGE-$VERSION
+		pushd "$(command:bundle "$PACKAGE_TYPE")" > /dev/null
+		command:action "$STOW" --target="$(command:target "$PACKAGE_TYPE")" "$PACKAGE-$VERSION"
 		popd > /dev/null
-		mkdir -p $SELF_DATA && echo "$VERSION" | tee $SELF_DATA/$PACKAGE > /dev/null
+		mkdir -p "$SELF_DATA" && echo "$VERSION" | tee "$SELF_DATA/$PACKAGE" > /dev/null
 	fi
 
-	if [ -x .$SELF/install ]; then
-		local OLDUMASK=$(umask); test $EUID -eq 0 && umask 022
-		if .$SELF/install $VERSION; then
-			command:action umask $OLDUMASK; info  "$PACKAGE - install script successful"
+	if [ -x ".$SELF/install" ]; then
+		local OLDUMASK=$(umask); test "$EUID" -eq 0 && umask 022
+		if ".$SELF/install" "$VERSION"; then
+			command:action umask "$OLDUMASK"; info "$PACKAGE - install script successful"
 		else
-			command:action umask $OLDUMASK; fatal "$PACKAGE - install script failure"
+			command:action umask "$OLDUMASK"; fatal "$PACKAGE - install script failure"
 		fi
 	fi
 	popd > /dev/null
@@ -1235,24 +1089,21 @@ ENDHELP
 
 #------------------------------------------------------------------------------
 command:delete() {
-	local PACKAGE=${1};
-	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	local WORKTREE=$(command:worktree "$PACKAGE")
+	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
 	test -z "$WORKTREE" && fatal "delete - package $PACKAGE has no worktree - please stage it"
 
-	pushd $WORKTREE > /dev/null
-	for BUNDLED_PACKAGE in $(command:bundles $PACKAGE); do
-		command:action $STOW --target=$(command:target $(command:type $PACKAGE)) --delete $BUNDLED_PACKAGE
+	pushd "$WORKTREE" > /dev/null
+	for BUNDLED_PACKAGE in $(command:bundles); do
+		command:action "$STOW" --target="$(command:target "$(command:type)")" --delete "$BUNDLED_PACKAGE"
 	done
-	rm -f $SELF_DATA/$PACKAGE
+	rm -f "$SELF_DATA/$PACKAGE"
 
 	if [ -x ./delete ]; then
 		if ./delete; then
-			info  "$PACKAGE - delete script successful"
+			info "$PACKAGE - delete script successful"
 		else
 			fatal "$PACKAGE - delete script failure"
 		fi
-		popd > /dev/null
 	fi
 	popd > /dev/null
 }
@@ -1260,40 +1111,23 @@ command:delete() {
 #------------------------------------------------------------------------------
 command:update() {
 	if [ -z "$PACKAGE" ]; then
-		if [ "$EUID" -eq 0 ]; then
-			info "updating all user and system packages"
-			for PACKAGE in $(command:list); do
-				command:stage $PACKAGE
-				if $(command:version $PACKAGE > /dev/null); then
-					command:update $PACKAGE
-				fi
-			done
-		else
-			info "updating all user packages"
-			for PACKAGE in $(command:user); do
-				command:stage $PACKAGE
-				if $(command:version $PACKAGE > /dev/null); then
-					command:update $PACKAGE
-				fi
-			done
-		fi
+		for PKG in $(command:list); do
+			"$0" "$PKG" update
+		done
 		return 0
-	else
-		if [ -z "$WORKTREE" ]; then
-			info "package $PACKAGE not staged, staging now"
-			command:stage "$PACKAGE"
-		else
-			pushd $WORKTREE > /dev/null
-			if $(command:version $PACKAGE > /dev/null); then
-        	        	command:stage $PACKAGE
-				local VERSION=$(command:versions $PACKAGE | tail -1)
-				command:install $PACKAGE $VERSION
-			else
-				warn "package $PACKAGE is not installed"
-			fi
-			popd > /dev/null
-		fi
 	fi
+	validate_package_name "$PACKAGE"
+
+	command:stage
+
+	if [ ! -f "$SELF_DATA/$PACKAGE" ]; then
+		info "$PACKAGE - not installed, skipping"
+		return 0
+	fi
+
+	local VERSION=$(command:versions | tail -1)
+	[ -z "$VERSION" ] && fatal "$PACKAGE - no versions available"
+	command:install "$VERSION"
 }
 
 #------------------------------------------------------------------------------
@@ -1310,14 +1144,13 @@ if [[ $# == 0 ]]; then
 	exit 0
 fi
 
-if command:list | grep -q $1; then
+if command:list | grep -qxF -- "$1"; then
 	PACKAGE=$1
+	shift
 	if test -d "$SELF_SOURCES/$PACKAGE/.$SELF"; then
 		WORKTREE="$SELF_SOURCES/$PACKAGE"
-		shift
 	elif test -d "$SELF_SOURCES/$SELF-$PACKAGE"; then
 		WORKTREE="$SELF_SOURCES/$SELF-$PACKAGE"
-		shift
 	fi
 elif git rev-parse --is-inside-work-tree > /dev/null 2> /dev/null; then
 	WORKTREE=$(git rev-parse --show-toplevel 2> /dev/null)

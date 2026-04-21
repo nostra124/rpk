@@ -1,0 +1,250 @@
+.TH RPK 1 "2026-04-21" "rpk 1.2.1" "User Commands"
+.SH NAME
+rpk \- a bash-based package manager using git repositories
+.SH SYNOPSIS
+.B rpk
+[\fIOPTIONS\fR]
+.I package
+.I command
+[\fIargs\fR...]
+.br
+.B rpk
+[\fIOPTIONS\fR]
+.I command
+[\fIargs\fR...]
+.SH DESCRIPTION
+.B rpk
+is a simple package manager where every package is a git repository
+containing an
+.B .rpk/
+directory describing how to build and install it.
+Package bundles are versioned under a per-user or system bundle directory and
+symlinked into the target tree using GNU Stow.
+.PP
+Most commands operate on a single package. The package is named as the first
+positional argument
+.RI ( "rpk package command args" ),
+or inferred from the current git worktree when the command is invoked from
+inside a staged package.
+.SH OPTIONS
+.TP
+.B \-d
+Enable debug mode (equivalent to \fBSELF_DEBUG=1\fR; turns on \fBset -vx\fR).
+.TP
+.B \-v
+Enable verbose mode.
+.TP
+.B \-q
+Quiet mode; suppress informational output.
+.TP
+.B \-f
+Force mode; for example, re-package a version whose bundle already exists.
+.SH COMMANDS
+.SS General
+.TP
+.B help \fR[\fIcommand\fR]
+Print the top-level help or help for a specific command.
+.TP
+.B source
+Print the packages source directory (\fB$SELF_SOURCES\fR).
+.TP
+.B repo
+Print the packages bare-repository directory (\fB$SELF_REPO\fR).
+.TP
+.B target \fIhome\fR|\fIsystem\fR
+Print the install target directory for the given scope.
+.TP
+.B bundle \fIhome\fR|\fIsystem\fR
+Print the bundle staging directory for the given scope.
+.TP
+.B action \fIcmd\fR [\fIargs\fR...]
+Echo and execute \fIcmd\fR.
+.TP
+.B daemon \fIcmd\fR [\fIargs\fR...]
+Echo and execute \fIcmd\fR in the background; print its PID.
+.TP
+.BI "[" pkg "] info " msg
+Print an informational message, tagged with the package name.
+.TP
+.BI "[" pkg "] warn " msg
+Print a warning message, tagged with the package name.
+.TP
+.BI "[" pkg "] fatal " msg
+Print an error message and exit with status 1.
+.SS Version
+.TP
+.BI "[" pkg "] identity"
+Print the identity of the package.
+.TP
+.BI "[" pkg "] version"
+Print the currently installed version of the package.
+.TP
+.BI "[" pkg "] versions"
+List every version declared in \fB.rpk/versions\fR.
+.TP
+.BI "[" pkg "] major"
+Record a new major version in \fB.rpk/versions\fR and commit.
+.TP
+.BI "[" pkg "] minor"
+Record a new minor version.
+.TP
+.BI "[" pkg "] patch"
+Record a new patch version.
+.TP
+.BI "[" pkg "] changelog " "[" version "]"
+Print a GNU-style changelog for the given version (default: latest).
+.SS System
+.TP
+.B platform
+Print the detected platform name (\fImacos\fR, \fIdebian\fR, ...).
+.TP
+.B upgrade
+Run the platform\[aq]s native package manager to upgrade the base system and
+install missing prerequisites (e.g. \fBstow\fR).
+.TP
+.B init
+Initialise the \fB.rpk/\fR directory in the current git worktree, set up a
+local bare repository, and scaffold \fB.rpk/package\fR if missing.
+.SS Query
+.TP
+.BI "[" pkg "] type"
+Print the package type (\fIuser\fR or \fIsystem\fR).
+.TP
+.B list
+List all available packages visible under \fB$SELF_SOURCES\fR and
+\fB$SELF_REPO\fR.
+.TP
+.BI "[" pkg "] show"
+Print package metadata: name, worktree, dependencies, versions, current
+version, type.
+.SS Synchronisation
+.TP
+.BI "[" pkg "] accounts"
+Print the remote SSH accounts configured for the package.
+.TP
+.BI "[" pkg "] stage"
+Clone the local bare repository into the source tree, or pull the latest
+commits if already cloned.
+.TP
+.BI "[" pkg "] pull " "[" accounts "...]"
+Pull from the local bare repo and from the given remote accounts (or every
+\fI@\fR\-remote if none specified).
+.TP
+.BI "[" pkg "] push " "[" accounts "...]"
+Push to the local bare repo and to the given remote accounts. Creates a remote
+bare repository if missing.
+.TP
+.BI "[" pkg "] release " "[" accounts "...]"
+Like \fBpush\fR, and additionally \fBscp\fRs the current \fBrpk\fR script to
+\fI/tmp/rpk\fR on each remote and invokes
+.BI "rpk " "pkg" " update"
+there.
+.TP
+.BI "[" pkg "] sync " "[" account "]"
+Bidirectional fetch-merge-push with the given account, or every known SSH
+account if none specified.
+.TP
+.BI "[" pkg "] drop " account
+Remove the remote of the given account from the package.
+.SS Dependency
+.TP
+.BI "[" pkg "] depends"
+Execute every script under \fB.rpk/depends/\fR to satisfy prerequisites.
+.SS Bundle
+.TP
+.BI "[" pkg "] bundles"
+List the bundled versions already built for the package.
+.TP
+.BI "[" pkg "] cleanup"
+Remove every bundle for the package other than the currently installed version.
+.TP
+.BI "[" pkg "] package " "[" version "]"
+Run \fB.rpk/package\fR to produce a bundle under
+.BR $(rpk\ bundle\ ...) "."
+Default: latest version in \fB.rpk/versions\fR.
+.SS Install
+.TP
+.BI "[" pkg "] install " "[" version "]"
+Ensure a bundle exists for the given version, then \fBstow\fR it into the
+target tree; run \fB.rpk/install\fR if present. Default: latest version.
+.TP
+.BI "[" pkg "] delete"
+\fBstow \-\-delete\fR every bundled version and remove the install record.
+.TP
+.BI "[" pkg "] update"
+Pull the latest commits (\fBstage\fR), then reinstall the latest version if
+the package was previously installed. With no \fIpkg\fR, iterates every
+package in \fBlist\fR.
+.SS Package-specific
+.TP
+.BI "[" pkg "] commands"
+List executables under \fIpkg\fR\(aqs \fBcommand/\fR directory.
+.TP
+.IB pkg " " cmd " [" args "...]"
+Execute the package-local \fBcommand/\fIcmd\fR script with the given arguments.
+.SH ENVIRONMENT
+.TP
+.B SELF_DEBUG
+When set, enable \fBset -vx\fR tracing.
+.TP
+.B SELF_VERBOSE
+Enable verbose output.
+.TP
+.B SELF_QUIET
+Suppress informational output.
+.TP
+.B SELF_FORCE
+Force re-package of an already-built bundle.
+.TP
+.B XDG_CONFIG_HOME
+Defaults to \fB$HOME/.local/etc\fR. Used to derive \fB$SELF_CONFIG\fR.
+.TP
+.B XDG_CACHE_HOME
+Defaults to \fB$HOME/.cache\fR. Used to derive \fB$SELF_CACHE\fR.
+.TP
+.B XDG_DATA_HOME
+Defaults to \fB$HOME/.local/var/lib\fR. Used to derive \fB$SELF_DATA\fR
+(install records) and \fB$SELF_REPO\fR (bare repositories).
+.SH FILES
+.TP
+.B ~/.local/src/
+Default source tree for staged package worktrees.
+.TP
+.B ~/.local/pkg/
+User bundle directory. System bundles live under \fB/usr/local/pkg/\fR.
+.TP
+.B ~/.local/
+Default user install target. System target is \fB/usr/local/\fR.
+.TP
+.B <worktree>/.rpk/type
+File containing \fBuser\fR or \fBsystem\fR.
+.TP
+.B <worktree>/.rpk/versions
+Tab-separated ledger of declared versions. Each line:
+\fIversion\fR\ \ <tab>\ \ \fIcommit-sha\fR.
+.TP
+.B <worktree>/.rpk/package
+Executable invoked by \fBrpk \fIpkg\fB\ package\fR to build a bundle for a
+specific version.
+.TP
+.B <worktree>/.rpk/install
+Optional executable invoked after \fBstow\fR during
+.BR "rpk " pkg " install" .
+.TP
+.B <worktree>/.rpk/depends/
+Directory of executable prerequisite scripts.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+General fatal error (\fBfatal\fR).
+.TP
+.B 100
+Failure from an \fB.rpk/\fR package script (\fBdie\fR).
+.SH SEE ALSO
+.BR stow (8),
+.BR git (1),
+.BR ssh (1),
+.BR rsync (1)

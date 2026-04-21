@@ -1,4 +1,4 @@
-.PHONY: all check test lint clean install install-bin install-etc install-share help
+.PHONY: all check test lint clean install install-bin install-etc install-share install-man help
 
 -include config.mk
 
@@ -6,15 +6,18 @@ SHELL := /bin/bash
 BIN_DIR := $(CURDIR)/bin
 ETC_DIR := $(CURDIR)/etc
 SHARE_DIR := $(CURDIR)/share
+MAN_DIR := $(CURDIR)/man
 TEST_DIR := $(CURDIR)/t
 
 SCRIPTS := $(wildcard $(BIN_DIR)/*)
+MAN_PAGES := $(wildcard $(MAN_DIR)/*.1)
 TEST_FILES := $(wildcard $(TEST_DIR)/*.t)
 
 INSTALL_PREFIX ?= $(HOME)/.local
 INSTALL_BIN ?= $(INSTALL_PREFIX)/bin
 INSTALL_ETC ?= $(INSTALL_PREFIX)/etc
 INSTALL_SHARE ?= $(INSTALL_PREFIX)/share
+INSTALL_MAN ?= $(INSTALL_PREFIX)/share/man
 
 all: check test
 
@@ -24,10 +27,11 @@ help:
 	@echo "  make check       - Alias for lint"
 	@echo "  make test        - Run all test files in t/"
 	@echo "  make lint        - Lint all scripts with shellcheck"
-	@echo "  make install     - Install scripts, etc, and share"
+	@echo "  make install     - Install scripts, etc, share, and man pages"
 	@echo "  make install-bin - Install scripts to \$$INSTALL_BIN"
 	@echo "  make install-etc - Install etc to \$$INSTALL_ETC"
 	@echo "  make install-share - Install share to \$$INSTALL_SHARE"
+	@echo "  make install-man - Install man pages to \$$INSTALL_MAN"
 	@echo "  make clean       - Remove installed files"
 	@echo ""
 	@echo "Variables:"
@@ -53,7 +57,7 @@ lint:
 		fi \
 	done
 
-install: install-bin install-etc install-share
+install: install-bin install-etc install-share install-man
 	@echo "Installation complete."
 
 install-bin:
@@ -80,6 +84,19 @@ install-share:
 		rsync -a --exclude='.*' "$(SHARE_DIR)/" "$(DESTDIR)$(INSTALL_SHARE)/"; \
 	else \
 		echo "share directory not found, skipping"; \
+	fi
+
+install-man:
+	@echo "Installing man pages to $(INSTALL_MAN)..."
+	@if [ -n "$(MAN_PAGES)" ]; then \
+		for page in $(MAN_PAGES); do \
+			section=$$(basename "$$page" | sed 's/.*\.//'); \
+			dest="$(DESTDIR)$(INSTALL_MAN)/man$$section"; \
+			mkdir -p "$$dest"; \
+			cp "$$page" "$$dest/"; \
+		done; \
+	else \
+		echo "no man pages found, skipping"; \
 	fi
 
 clean:
