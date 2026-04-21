@@ -1,4 +1,4 @@
-.PHONY: all check test lint clean install install-bin install-etc install-share install-man install-doc help
+.PHONY: all check test lint clean install install-bin install-etc install-share install-man install-doc install-skills help
 
 -include config.mk
 
@@ -8,6 +8,7 @@ ETC_DIR := $(CURDIR)/etc
 SHARE_DIR := $(CURDIR)/share
 MAN_DIR := $(CURDIR)/man
 DOC_DIR := $(CURDIR)/docs
+SKILLS_DIR := $(CURDIR)/skills
 TEST_DIR := $(CURDIR)/t
 
 SCRIPTS := $(wildcard $(BIN_DIR)/*)
@@ -30,12 +31,13 @@ help:
 	@echo "  make check       - Alias for lint"
 	@echo "  make test        - Run all test files in t/"
 	@echo "  make lint        - Lint all scripts with shellcheck"
-	@echo "  make install     - Install scripts, etc, share, man pages, and docs"
+	@echo "  make install     - Install scripts, etc, share, man, docs, and agent skills"
 	@echo "  make install-bin - Install scripts to \$$INSTALL_BIN"
 	@echo "  make install-etc - Install etc to \$$INSTALL_ETC"
 	@echo "  make install-share - Install share to \$$INSTALL_SHARE"
 	@echo "  make install-man - Install man pages to \$$INSTALL_MAN"
 	@echo "  make install-doc - Install documentation to \$$INSTALL_DOC"
+	@echo "  make install-skills - Install agent skills (Claude Code, opencode, raven)"
 	@echo "  make clean       - Remove installed files"
 	@echo ""
 	@echo "Variables:"
@@ -61,7 +63,7 @@ lint:
 		fi \
 	done
 
-install: install-bin install-etc install-share install-man install-doc
+install: install-bin install-etc install-share install-man install-doc install-skills
 	@echo "Installation complete."
 
 install-bin:
@@ -113,6 +115,24 @@ install-doc:
 	else \
 		echo "no documentation found, skipping"; \
 	fi
+
+install-skills:
+	@echo "Installing agent skills..."
+	@if [ -f "$(SKILLS_DIR)/rpk-author/SKILL.md" ]; then \
+		mkdir -p "$(DESTDIR)$(INSTALL_SHARE)/claude/skills/rpk-author"; \
+		cp "$(SKILLS_DIR)/rpk-author/SKILL.md" "$(DESTDIR)$(INSTALL_SHARE)/claude/skills/rpk-author/SKILL.md"; \
+		mkdir -p "$(DESTDIR)$(INSTALL_SHARE)/raven/skills/rpk-author"; \
+		cp "$(SKILLS_DIR)/rpk-author/SKILL.md" "$(DESTDIR)$(INSTALL_SHARE)/raven/skills/rpk-author/SKILL.md"; \
+	fi
+	@if [ -f "$(SKILLS_DIR)/rpk-author/opencode.md" ]; then \
+		mkdir -p "$(DESTDIR)$(INSTALL_SHARE)/opencode/commands"; \
+		cp "$(SKILLS_DIR)/rpk-author/opencode.md" "$(DESTDIR)$(INSTALL_SHARE)/opencode/commands/rpk-author.md"; \
+	fi
+	@echo ""
+	@echo "Activate per agent by symlinking from the user config dir:"
+	@echo "  Claude Code:  ln -sf $(INSTALL_SHARE)/claude/skills/rpk-author \$$HOME/.claude/skills/rpk-author"
+	@echo "  Raven:        ln -sf $(INSTALL_SHARE)/raven/skills/rpk-author \$$HOME/.raven/workspace/skills/rpk-author"
+	@echo "  opencode:     ln -sf $(INSTALL_SHARE)/opencode/commands/rpk-author.md \$$HOME/.config/opencode/commands/rpk-author.md"
 
 clean:
 	@echo "Cleaning up..."
