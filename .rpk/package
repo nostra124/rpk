@@ -6,25 +6,24 @@ function die() {
 }
 
 SOURCE=$(git rev-parse --show-toplevel 2> /dev/null)
-PACKAGE=$($SOURCE/bin/rpk identity)
+PACKAGE=$("$SOURCE/bin/rpk" identity)
 VERSION=$1
 
-test -z "$VERSION" && VERSION=$($SOURCE/bin/rpk versions | tail -1)
+test -z "$VERSION" && VERSION=$("$SOURCE/bin/rpk" versions | tail -1)
 
-TARGET=$($SOURCE/bin/rpk bundle home)/$PACKAGE-$VERSION
+COMMIT=$("$SOURCE/bin/rpk" commit "$VERSION")
+test -z "$COMMIT" && die "version $VERSION has no commit hash"
+
+TARGET=$("$SOURCE/bin/rpk" bundle "$("$SOURCE/bin/rpk" type)")/$PACKAGE-$VERSION
 
 BRANCH=$(git branch --show-current)
 trap "git checkout $BRANCH --force" EXIT
 
-if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
-	git config advice.detachedHead false
-	git checkout v$VERSION
-else
-	die "version $VERSION has no valid tag"
-fi
+git config advice.detachedHead false
+git checkout "$COMMIT" || die "failed to checkout $COMMIT for version $VERSION"
 
-./configure --prefix=$TARGET
+./configure --prefix="$TARGET"
 make
 make install
 
-git checkout $BRANCH --force
+git checkout "$BRANCH" --force
