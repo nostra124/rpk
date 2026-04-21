@@ -47,3 +47,66 @@ make_repo() {
 	) >/dev/null
 	echo "$repo"
 }
+
+# make_package <name> — create a fresh git repo under $HOME/.local/src/<name>
+# (so rpk's dispatcher can resolve it by name), run `rpk init`, and echo the
+# absolute path.
+make_package() {
+	local name=${1:-testpkg}
+	local repo="$HOME/.local/src/$name"
+	mkdir -p "$repo"
+	(
+		cd "$repo"
+		git init -q -b main
+		echo "hello" > README.md
+		git add README.md
+		git commit -q -m "initial"
+		rpk init >/dev/null 2>&1
+	) >/dev/null
+	echo "$repo"
+}
+
+# make_buildable_package <name> — like make_package, plus scaffolds a minimal
+# autoconf-style build (configure + Makefile) that installs a `hello-<name>`
+# script into $(PREFIX)/bin. Suitable for lifecycle tests that exercise the
+# package / install / delete pipeline.
+make_buildable_package() {
+	local name=${1:-testpkg}
+	local repo="$HOME/.local/src/$name"
+	mkdir -p "$repo"
+
+	cat > "$repo/configure" <<'CONFIGURE'
+#!/bin/sh
+for arg; do
+	case "$arg" in
+		--prefix=*) echo "PREFIX=${arg#*=}" > config.mk ;;
+	esac
+done
+CONFIGURE
+	chmod +x "$repo/configure"
+
+	cat > "$repo/Makefile" <<MAKEFILE
+-include config.mk
+PREFIX ?= /usr/local
+
+.PHONY: all install
+
+all: ;
+
+install:
+	@mkdir -p \$(PREFIX)/bin
+	@printf '#!/bin/sh\necho hello from $name\n' > \$(PREFIX)/bin/hello-$name
+	@chmod +x \$(PREFIX)/bin/hello-$name
+MAKEFILE
+
+	echo "config.mk" > "$repo/.gitignore"
+
+	(
+		cd "$repo"
+		git init -q -b main
+		git add .
+		git commit -q -m "initial"
+		rpk init >/dev/null 2>&1
+	) >/dev/null
+	echo "$repo"
+}

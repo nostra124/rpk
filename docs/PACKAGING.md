@@ -94,16 +94,15 @@ Executable, invoked by `rpk <pkg> package [version]` (and implicitly by
 
 function die() { echo "$@"; exit 100; }
 
-SOURCE=$(git rev-parse --show-toplevel 2>/dev/null)
-PACKAGE=$("$SOURCE/bin/rpk" identity)
+PACKAGE=$(rpk identity)
 VERSION=$1
 
-test -z "$VERSION" && VERSION=$("$SOURCE/bin/rpk" versions | tail -1)
+test -z "$VERSION" && VERSION=$(rpk versions | tail -1)
 
-COMMIT=$("$SOURCE/bin/rpk" commit "$VERSION")
+COMMIT=$(rpk commit "$VERSION")
 test -z "$COMMIT" && die "version $VERSION has no commit hash"
 
-TARGET=$("$SOURCE/bin/rpk" bundle "$("$SOURCE/bin/rpk" type)")/$PACKAGE-$VERSION
+TARGET=$(rpk bundle "$(rpk type)")/$PACKAGE-$VERSION
 
 BRANCH=$(git branch --show-current)
 trap "git checkout $BRANCH --force" EXIT
@@ -119,6 +118,10 @@ make install
 
 git checkout "$BRANCH" --force
 ```
+
+The script assumes `rpk` is reachable on `$PATH`. When `rpk <pkg> package`
+invokes `.rpk/package`, it runs as a subprocess of rpk itself, so the
+invoking `rpk` is already on `$PATH`.
 
 Only the block between the comment markers changes from one package to
 another. See the cookbook below.

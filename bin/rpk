@@ -357,9 +357,9 @@ command:versions() {
 	if [ ! -z "$WORKTREE" -a -d "$WORKTREE" ]; then
 		pushd $WORKTREE > /dev/null
 		if [ -x .$SELF/versions ]; then
-			.$SELF/versions | sort --unique --version-sort
+			.$SELF/versions | sort -u -V
 		elif [ -f .$SELF/versions ]; then
-			cat .$SELF/versions | cut --fields=1 | sort --unique --version-sort
+			cut -f 1 .$SELF/versions | sort -u -V
 		fi
 		popd > /dev/null
 	fi
@@ -372,7 +372,7 @@ command:commit() {
 	if [ ! -z "$WORKTREE" -a -d "$WORKTREE" ]; then
 		pushd $WORKTREE > /dev/null
 		if [ -f .$SELF/versions -a ! -x .$SELF/versions ]; then
-			grep "^$VERSION[[:blank:]]" .$SELF/versions | cut --fields=2 --only-delimited | head -1
+			grep "^$VERSION[[:blank:]]" .$SELF/versions | cut -s -f 2 | head -1
 		fi
 		popd > /dev/null
 	fi
@@ -553,16 +553,15 @@ function die() {
 	exit 100
 }
 
-SOURCE=$(git rev-parse --show-toplevel 2> /dev/null)
-PACKAGE=$("$SOURCE/bin/rpk" identity)
+PACKAGE=$(rpk identity)
 VERSION=$1
 
-test -z "$VERSION" && VERSION=$("$SOURCE/bin/rpk" versions | tail -1)
+test -z "$VERSION" && VERSION=$(rpk versions | tail -1)
 
-COMMIT=$("$SOURCE/bin/rpk" commit "$VERSION")
+COMMIT=$(rpk commit "$VERSION")
 test -z "$COMMIT" && die "version $VERSION has no commit hash"
 
-TARGET=$("$SOURCE/bin/rpk" bundle "$("$SOURCE/bin/rpk" type)")/$PACKAGE-$VERSION
+TARGET=$(rpk bundle "$(rpk type)")/$PACKAGE-$VERSION
 
 BRANCH=$(git branch --show-current)
 trap "git checkout $BRANCH --force" EXIT
@@ -615,10 +614,11 @@ CLI reference: `man rpk`.
 EOF
 	fi
 
-	if git diff --cached --quiet; then
+	git add .$SELF
+	if git diff --cached --quiet -- .$SELF; then
 		info "no changes to commit"
 	else
-		git add .$SELF && git commit -m "initialized .$SELF" || { popd > /dev/null; fatal "failed to commit .$SELF files"; }
+		git commit -m "initialized .$SELF" .$SELF || { popd > /dev/null; fatal "failed to commit .$SELF files"; }
 	fi
 	push:branches local || true
 	popd > /dev/null
@@ -1128,20 +1128,24 @@ command:delete() {
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
 	test -z "$WORKTREE" && fatal "delete - package $PACKAGE has no worktree - please stage it"
 
-	pushd "$WORKTREE" > /dev/null
+	local PACKAGE_TYPE=$(command:type)
 	for BUNDLED_PACKAGE in $(command:bundles); do
-		command:action "$STOW" --target="$(command:target "$(command:type)")" --delete "$BUNDLED_PACKAGE"
+		pushd "$(command:bundle "$PACKAGE_TYPE")" > /dev/null
+		command:action "$STOW" --target="$(command:target "$PACKAGE_TYPE")" --delete "$BUNDLED_PACKAGE"
+		popd > /dev/null
 	done
 	rm -f "$SELF_DATA/$PACKAGE"
 
-	if [ -x ./delete ]; then
-		if ./delete; then
+	if [ -x "$WORKTREE/.$SELF/delete" ]; then
+		pushd "$WORKTREE" > /dev/null
+		if ".$SELF/delete"; then
 			info "$PACKAGE - delete script successful"
 		else
+			popd > /dev/null
 			fatal "$PACKAGE - delete script failure"
 		fi
+		popd > /dev/null
 	fi
-	popd > /dev/null
 }
 
 #------------------------------------------------------------------------------
@@ -1211,7 +1215,7 @@ if has command $1; then
 	exit $?
 elif [ -z "$PACKAGE" ]; then
 	fatal "unknown command: ${@}"
-elif command:list | grep --quiet ^$PACKAGE$; then
+elif command:list | grep -q ^$PACKAGE$; then
 	COMMAND=$1
 	if [ -z "$COMMAND" ]; then
 		fatal "$PACKAGE - please specify a command"
