@@ -93,10 +93,24 @@ mkdir -p "$SELF_REPO"
 STOW=$(which stow)
 [ -z "$STOW" ] && [ -x /opt/local/bin/stow ] && STOW=/opt/local/bin/stow
 
+rpk:work() {
+	for REPO in $(ls -1 $SELF_SOURCES 2>/dev/null); do
+		if [[ $REPO =~ ^"$SELF-" ]]; then
+			echo "$REPO" | sed "s/$SELF-//g"
+		elif [ -d "$SELF_SOURCES/$REPO/.$SELF" ]; then
+			echo "$REPO"
+		fi
+	done | sed -z '$ s/^\n$//'
+}
+
 rpk:bare() {
-	{
-		[ -d "$SELF_REPO" ] && ls -1 "$SELF_REPO"
-	} 2>/dev/null | sort -u | sed -z '$ s/\n$//'
+        for REPO in $(ls -1 "$SELF_REPO"); do
+                if [[ $REPO =~ ^"$SELF-" ]]; then
+                        if [[ ! -d $SELF_SOURCES/$REPO ]]; then
+                                echo "$REPO" | sed "s/$SELF-//g"
+                        fi
+                fi
+        done | sed -z '$ s/^\n$//'
 }
 
 rpk:ssh-known-accounts() {
@@ -201,10 +215,8 @@ system commands:
    init                    initializes the .rpk directory
 
 package query commands:
-   [pkg] type              shows the package type (system|user)
    list                    lists all available packages in ${SELF_SOURCES}
-   system                  lists all system wide installable packages
-   user                    lists all user installable packages
+   [pkg] type              shows the package type (system|user)
    [pkg] show              shows all info available regarding <pkg>
 
 package synchronisation commands:
@@ -592,68 +604,29 @@ EOF
 }
 
 #------------------------------------------------------------------------------
+command:list() {
+	{ 
+	rpk:bare
+	rpk:work
+	} | sort -u | sed -z '$ s/^\n$//'
+}
+
+#------------------------------------------------------------------------------
 command:type() {
-	local PACKAGE=${1};
-	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	local WORKTREE=$(command:worktree "$PACKAGE")
-	test -z "$WORKTREE" && fatal "type - package $PACKAGE has no worktree - please stage it"
-	if [ -f "$WORKTREE/.$SELF/$SELF-type" ]; then
-		cat "$WORKTREE/.$SELF/$SELF-type"
-	elif [ -f "$WORKTREE/.$SELF/type" ]; then
+	if [ -f "$WORKTREE/.$SELF/type" ]; then
 		cat "$WORKTREE/.$SELF/type"
+		return 0
 	else
-		echo "user"
+		return 1
 	fi
 }
 
 #------------------------------------------------------------------------------
-command:list() {
-	{ for REPO in $(ls -1 $(command:source) 2>/dev/null); do
-		if [[ $REPO =~ ^"$SELF-" ]]; then
-			echo "$REPO" | sed "s/$SELF-//g"
-		elif [ -d "$SELF_SOURCES/$REPO/.$SELF" ]; then
-			echo "$REPO"
-		fi
-	done 
-
-	for REPO in $(rpk:bare); do
-		if [[ $REPO =~ ^"$SELF-" ]]; then
-			if [[ ! -d $SELF_SOURCES/$REPO ]]; then
-				echo "$REPO" | sed "s/$SELF-//g"
-			fi
-		fi
-	done } | sed -z '$ s/^\n$//'
-}
-
-#------------------------------------------------------------------------------
-command:system() {
-	for PACKAGE in $(command:list); do
-		test "$(command:type $PACKAGE)" = "system" && echo -e "$PACKAGE"
-	done | sed -z '$ s/^\n$//'
-}
-
-#------------------------------------------------------------------------------
-command:user() {
-	for PACKAGE in $(command:list); do
-		test "$(command:type $PACKAGE)" = "user" && echo -e "$PACKAGE"
-	done | sed -z '$ s/^\n$//'
-}
-
-#------------------------------------------------------------------------------
 command:show() {
-	local PACKAGE=${1}
-	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	local WORKTREE=$(command:worktree "$PACKAGE")
 	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
-		for PACKAGE in $(command:list); do
-			command:show $PACKAGE
-			echo -e ""
-		done
-		return 0
+		return 1
 	else
-		test -z "$WORKTREE" && fatal "show - package $PACKAGE has no worktree - please stage it"
 		pushd $WORKTREE > /dev/null
-		local PACKAGE=$(command:identity)
 		if [ -d $WORKTREE/.$SELF/depends ]; then
 			local DEPENDS=$(ls -1 $WORKTREE/.$SELF/depends | tr '\n' ';' | sed 's/;$//')
 		else
@@ -663,85 +636,74 @@ command:show() {
 		echo -e "Name:\t\t$PACKAGE"
 		echo -e "Worktree:\t$WORKTREE"
 		echo -e "Depends:\t$DEPENDS"
-		echo -e "Versions:\t$(command:versions $PACKAGE | tr '\n' ';' | sed 's/;$//')"
-		echo -e "Version:\t$(command:version $PACKAGE)"
-		echo -e "Type:\t\t$(command:type $PACKAGE)"
+		echo -e "Versions:\t$(command:versions | tr '\n' ';' | sed 's/;$//')"
+		echo -e "Version:\t$(command:version)"
+		echo -e "Type:\t\t$(command:type)"
+		return 0
 	fi
 }
 
 #------------------------------------------------------------------------------
 command:accounts() {
-	local PACKAGE=${1};
-	local WORKTREE=$(command:worktree $PACKAGE)
 	if [ -z "$PACKAGE" -a -z "$WORKTREE" ]; then
-		for PACKAGE in $(command:list); do
-			command:accounts $PACKAGE
-		done | sort -u
+		return 1
 	else
-		test -z "$WORKTREE" && fatal "accounts - package $PACKAGE has no worktree - please stage it"
 		pushd $WORKTREE > /dev/null
 		git remote | grep @
 		popd > /dev/null
+		return 0
 	fi
 }
 
 #------------------------------------------------------------------------------
 command:stage() {
-	if [ "$#" -eq 0 ]; then
-		command:stage $(command:list)
-	else
-		for PACKAGE in "$@"; do
-			[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-			local WORKTREE=$(command:worktree "$PACKAGE")
-			if [ -z "$WORKTREE" ]; then
-				if [ -d "$SELF_REPO/$PACKAGE" ]; then
-				        local WORKTREE="$SELF_SOURCES/$PACKAGE"
-        				local BARE_REPO="$SELF_REPO/$PACKAGE"
-				elif [ -d "$SELF_REPO/$SELF-$PACKAGE" ]; then
-					local WORKTREE="$SELF_SOURCES/$SELF-$PACKAGE"
-					local BARE_REPO="$SELF_REPO/$SELF-$PACKAGE"
-				else
-					fatal "$PACKAGE - no bare repository found"
-				fi
+	if [ -z "$WORKTREE" ]; then
+		if [ -d "$SELF_REPO/$PACKAGE" ]; then
+		        local WORKTREE="$SELF_SOURCES/$PACKAGE"
+       			local BARE_REPO="$SELF_REPO/$PACKAGE"
+		elif [ -d "$SELF_REPO/$SELF-$PACKAGE" ]; then
+			local WORKTREE="$SELF_SOURCES/$SELF-$PACKAGE"
+			local BARE_REPO="$SELF_REPO/$SELF-$PACKAGE"
+		else
+			fatal "$PACKAGE - no bare repository found"
+		fi
        
-				info "$PACKAGE - staging local package repository $WORKTREE" 
-				debug "stage: REPO=$REPO WORKTREE=$WORKTREE BARE_REPO=$BARE_REPO"
-				[ -d "$WORKTREE" -a ! -d "$WORKTREE/.git" ] && rm -rf "$WORKTREE"
-        
-				if [ -d "$WORKTREE" ]; then
-					pushd "$WORKTREE" > /dev/null
-					git remote remove local 2>/dev/null || true
-					git remote add local "$BARE_REPO" 2>/dev/null || true
-					popd > /dev/null
-				else
-					debug "cloning $BARE_REPO to $WORKTREE"
-					if ! git clone "$BARE_REPO" "$WORKTREE" 2>&1; then
-						fatal "failed to clone repository $BARE_REPO"
-					fi
-					
-					pushd "$WORKTREE" > /dev/null
-					git remote remove local 2>/dev/null || true
-					git remote add local "$BARE_REPO" 2>/dev/null || true
-					popd > /dev/null
-				fi
-			else
-				info "$PACKAGE - updating local package repository"
-				if [ -d "$SELF_REPO/$PACKAGE" ]; then
-					local BARE_REPO="$SELF_REPO/$PACKAGE"
-				elif [ -d "$SELF_REPO/$SELF-$PACKAGE" ]; then
-					local BARE_REPO="$SELF_REPO/$SELF-$PACKAGE"
-				else
-					fatal "$PACKAGE - no bare repository found"
-				fi
-
-				pushd "$WORKTREE" > /dev/null
-				git remote remove local 2>/dev/null || true
-				git remote add local "$BARE_REPO" 2>&1 || warn "failed to add local remote"
-				git fetch --tags local
-				git pull local "$(git rev-parse --abbrev-ref HEAD)"
-				popd > /dev/null
+		info "$PACKAGE - staging local package repository $WORKTREE" 
+		debug "stage: REPO=$REPO WORKTREE=$WORKTREE BARE_REPO=$BARE_REPO"
+		[ -d "$WORKTREE" -a ! -d "$WORKTREE/.git" ] && rm -rf "$WORKTREE"
+      
+		if [ -d "$WORKTREE" ]; then
+			pushd "$WORKTREE" > /dev/null
+			git remote remove local 2>/dev/null || true
+			git remote add local "$BARE_REPO" 2>/dev/null || true
+			popd > /dev/null
+		else
+			debug "cloning $BARE_REPO to $WORKTREE"
+			if ! git clone "$BARE_REPO" "$WORKTREE" 2>&1; then
+				fatal "failed to clone repository $BARE_REPO"
 			fi
-		done
+					
+			pushd "$WORKTREE" > /dev/null
+			git remote remove local 2>/dev/null || true
+			git remote add local "$BARE_REPO" 2>/dev/null || true
+			popd > /dev/null
+		fi
+	else
+		info "$PACKAGE - updating local package repository"
+		if [ -d "$SELF_REPO/$PACKAGE" ]; then
+			local BARE_REPO="$SELF_REPO/$PACKAGE"
+		elif [ -d "$SELF_REPO/$SELF-$PACKAGE" ]; then
+			local BARE_REPO="$SELF_REPO/$SELF-$PACKAGE"
+		else
+			fatal "$PACKAGE - no bare repository found"
+		fi
+
+		pushd "$WORKTREE" > /dev/null
+		git remote remove local 2>/dev/null || true
+		git remote add local "$BARE_REPO" 2>&1 || warn "failed to add local remote"
+		git fetch --tags local
+		git pull local "$(git rev-parse --abbrev-ref HEAD)"
+		popd > /dev/null
 	fi
 }
 
