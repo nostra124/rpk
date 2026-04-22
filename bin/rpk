@@ -200,8 +200,8 @@ system commands:
    init                    initializes the .rpk directory
 
 package query commands:
-   [pkg] type              shows the package type (system|user)
    list                    lists all available packages in ${SELF_SOURCES}
+   [pkg] type              shows the package type (system|user)
    [pkg] show              shows all info available regarding <pkg>
 
 package synchronisation commands:
