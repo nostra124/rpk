@@ -2,7 +2,7 @@
 id: FEAT-005
 type: feature
 priority: medium
-status: open
+status: done
 ---
 
 # Restructure tests into `unit/` and `sit/` tiers

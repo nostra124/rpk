@@ -1,7 +1,7 @@
 # Shared helpers for bats tests.
 
 # Absolute path to the rpk under test.
-: "${RPK_BIN:=${BATS_TEST_DIRNAME}/../bin/rpk}"
+: "${RPK_BIN:=${BATS_TEST_DIRNAME}/../../bin/rpk}"
 
 # Create a fresh sandbox $HOME for the current test and reset the env rpk reads.
 # All state (XDG dirs, bare repos, staged worktrees) lives inside $SANDBOX

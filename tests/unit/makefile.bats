@@ -9,7 +9,7 @@ teardown() { sandbox_teardown; }
 # `make clean` can't touch the user's real ~/.local.
 prefix() { echo "$SANDBOX/prefix"; }
 
-repo_root() { cd "$BATS_TEST_DIRNAME/.." && pwd; }
+repo_root() { cd "$BATS_TEST_DIRNAME/../.." && pwd; }
 
 @test "make install populates only rpk-scoped paths under INSTALL_PREFIX" {
 	make -C "$(repo_root)" install INSTALL_PREFIX="$(prefix)" >/dev/null

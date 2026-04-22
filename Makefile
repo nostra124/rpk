@@ -1,4 +1,4 @@
-.PHONY: all check test lint clean install install-bin install-etc install-share install-man install-doc install-skills install-skills-user uninstall-skills-user help
+.PHONY: all check check-sit test lint clean install install-bin install-etc install-share install-man install-doc install-skills install-skills-user uninstall-skills-user help
 
 -include config.mk
 
@@ -9,7 +9,8 @@ SHARE_DIR := $(CURDIR)/share
 MAN_DIR := $(CURDIR)/man
 DOC_DIR := $(CURDIR)/docs
 SKILLS_DIR := $(CURDIR)/skills
-TEST_DIR := $(CURDIR)/t
+TEST_DIR := $(CURDIR)/tests/unit
+SIT_DIR := $(CURDIR)/tests/sit
 
 SCRIPTS := $(wildcard $(BIN_DIR)/*)
 RPK_SCRIPTS := $(CURDIR)/.rpk/package \
@@ -27,13 +28,14 @@ INSTALL_SHARE ?= $(INSTALL_PREFIX)/share
 INSTALL_MAN ?= $(INSTALL_PREFIX)/share/man
 INSTALL_DOC ?= $(INSTALL_PREFIX)/share/doc/rpk
 
-all: check test
+all: lint check
 
 help:
 	@echo "Available targets:"
-	@echo "  make all         - Run check and test (default)"
-	@echo "  make check       - Alias for lint"
-	@echo "  make test        - Run all test files in t/"
+	@echo "  make all         - Run lint and check (default)"
+	@echo "  make check       - Run unit tests (bats in tests/unit/)"
+	@echo "  make check-sit   - Run system integration tests (bats + podman)"
+	@echo "  make test        - Alias for make check"
 	@echo "  make lint        - Lint all scripts with shellcheck"
 	@echo "  make install     - Install scripts, etc, share, man, docs, and agent skills"
 	@echo "  make install-bin - Install scripts to \$$INSTALL_BIN"
@@ -50,7 +52,7 @@ help:
 	@echo "  INSTALL_PREFIX   - Installation prefix (default: ~/.local)"
 	@echo "  INSTALL_ETC      - Configuration directory (default: PREFIX/etc)"
 
-check: lint
+check: test
 
 test:
 	@command -v bats >/dev/null 2>&1 || { echo "bats not installed — install with 'rpk rpk depends' or your package manager"; exit 1; }
@@ -58,6 +60,15 @@ test:
 		bats $(TEST_FILES); \
 	else \
 		echo "no tests found in $(TEST_DIR)"; \
+	fi
+
+check-sit:
+	@command -v bats >/dev/null 2>&1 || { echo "bats not installed"; exit 1; }
+	@command -v podman >/dev/null 2>&1 || { echo "podman not installed — skipping SIT"; exit 0; }
+	@if [ -d "$(SIT_DIR)/suites" ] && ls "$(SIT_DIR)"/suites/*.bats >/dev/null 2>&1; then \
+		bats "$(SIT_DIR)"/suites/*.bats; \
+	else \
+		echo "no SIT suites found in $(SIT_DIR)/suites"; \
 	fi
 
 lint:

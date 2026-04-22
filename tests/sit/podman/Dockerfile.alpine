@@ -1,0 +1,23 @@
+# SIT image: rpk installed on Alpine via `make install`.
+# Built from the repo root as context:
+#   podman build -t rpk-sit:alpine -f tests/sit/podman/Dockerfile.alpine .
+FROM alpine:3.19
+
+RUN apk add --no-cache bash git make rsync stow bats coreutils grep sed
+
+# Copy the rpk source in. Exclude build/test cruft via .dockerignore if needed.
+WORKDIR /src
+COPY bin/ bin/
+COPY etc/ etc/
+COPY man/ man/
+COPY docs/ docs/
+COPY skills/ skills/
+COPY Makefile configure ./
+
+# Install into /usr/local via the standard Makefile target.
+RUN ./configure --prefix=/usr/local && make install
+
+# Sanity check — fails the image build if rpk isn't reachable.
+RUN rpk help 2>&1 | grep -q usage
+
+CMD ["rpk", "help"]

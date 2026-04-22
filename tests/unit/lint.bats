@@ -15,7 +15,7 @@ load helpers
 		skip "shellcheck not installed"
 	fi
 	local repo_root
-	repo_root="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+	repo_root="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 	run shellcheck --severity=warning \
 		"$repo_root/.rpk/package" \
 		"$repo_root"/.rpk/depends/*

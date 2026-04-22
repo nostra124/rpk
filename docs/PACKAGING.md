@@ -337,6 +337,29 @@ rpk <pkg> install              # package + stow into ~/.local
   commands ran but didn't honour `$TARGET`. Double-check the `--prefix=`
   or equivalent flag is wired to `"$TARGET"`, not to `$HOME/.local`.
 
+## Testing your package
+
+rpk's own test suite is split into two tiers. Mirror the pattern in any
+package you author:
+
+| Tier | Path | Runtime | Runs |
+|------|------|---------|------|
+| **Unit** | `tests/unit/` | seconds | Every push. Exercises command surface against a sandboxed `$HOME`. No containers. |
+| **SIT** (system integration) | `tests/sit/` | 1-3 min per suite | On demand or scheduled. Builds per-distro Podman images and runs rpk end-to-end inside them. |
+
+Makefile entry points:
+
+    make check         # unit tier (bats against tests/unit/*.bats)
+    make check-sit     # SIT tier (podman + bats); soft-skips if podman is absent
+    make test          # alias for `make check`
+
+Unit-tier fixtures (`tests/unit/helpers.bash`) use a temporary `$HOME`
+with XDG vars cleared so tests never touch the user's real dotfiles.
+
+SIT Dockerfiles live under `tests/sit/podman/Dockerfile.<distro>`;
+suites under `tests/sit/suites/NN_topic.bats` build the image on
+demand and run `podman run --rm` per test.
+
 ## Agent integration
 
 `make install` ships the `rpk-author` skill into three share paths:

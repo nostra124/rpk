@@ -79,7 +79,7 @@ teardown() { sandbox_teardown; }
 
 @test "rpk's own .rpk/versions has a SHA for every entry (BUG-001 regression)" {
 	local repo_root
-	repo_root="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+	repo_root="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 	# Every non-blank line must have a tab and a 40-char hex SHA in field 2.
 	run awk -F '\t' '
 		/^[[:space:]]*$/ { next }
