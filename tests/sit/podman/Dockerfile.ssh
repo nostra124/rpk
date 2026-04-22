@@ -1,0 +1,48 @@
+# SIT image with rpk installed AND an sshd ready for rpk push/pull/release
+# tests. Two users live inside the container:
+#   rpklocal   — runs rpk; initiates pushes/pulls
+#   rpkremote  — receives pushes; its ~/.local/var/lib/repo/ plays the
+#                role of a "remote bare" server
+# rpklocal has a passwordless key trusted by rpkremote.
+FROM alpine:3.19
+
+RUN apk add --no-cache \
+	bash git make rsync stow bats coreutils grep sed \
+	openssh-server openssh-keygen openssh-client
+
+WORKDIR /src
+COPY bin/ bin/
+COPY etc/ etc/
+COPY man/ man/
+COPY docs/ docs/
+COPY skills/ skills/
+COPY Makefile configure ./
+
+RUN ./configure --prefix=/usr/local && make install
+
+# Generate host keys for sshd.
+RUN ssh-keygen -A
+
+# Two users.
+RUN adduser -D -s /bin/bash rpklocal \
+ && adduser -D -s /bin/bash rpkremote \
+ && passwd -u rpkremote
+
+# Passwordless key from rpklocal → rpkremote@localhost. Uses the default
+# identity file and a permissive Host-* config so `ssh rpkremote@localhost`
+# works without host-key prompts.
+RUN mkdir -p /home/rpklocal/.ssh /home/rpkremote/.ssh \
+ && ssh-keygen -q -N "" -t ed25519 -f /home/rpklocal/.ssh/id_ed25519 \
+ && cp /home/rpklocal/.ssh/id_ed25519.pub /home/rpkremote/.ssh/authorized_keys \
+ && printf 'Host *\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n  LogLevel ERROR\n' \
+    > /home/rpklocal/.ssh/config \
+ && chown -R rpklocal:rpklocal /home/rpklocal/.ssh \
+ && chmod 700 /home/rpklocal/.ssh \
+ && chmod 600 /home/rpklocal/.ssh/id_ed25519 /home/rpklocal/.ssh/config \
+ && chown -R rpkremote:rpkremote /home/rpkremote/.ssh \
+ && chmod 700 /home/rpkremote/.ssh \
+ && chmod 600 /home/rpkremote/.ssh/authorized_keys
+
+# Entrypoint: start sshd in foreground so the container stays up during tests.
+EXPOSE 22
+CMD ["/usr/sbin/sshd", "-D", "-e"]

@@ -27,3 +27,26 @@ sit_run() {
 	local distro=$1; shift
 	podman run --rm "rpk-sit:$distro" "$@"
 }
+
+# sit_start_daemon <distro> <name> — start a long-running container (e.g.
+# the ssh-enabled image) and echo its id. The image's CMD runs in the
+# foreground. Caller is responsible for sit_stop_daemon.
+sit_start_daemon() {
+	local distro=$1 name=$2
+	podman run -d --rm --name "$name" "rpk-sit:$distro" >/dev/null
+	# Give sshd a moment to bind.
+	sleep 1
+}
+
+sit_stop_daemon() {
+	local name=$1
+	podman stop --time 1 "$name" >/dev/null 2>&1 || true
+	podman rm -f "$name" >/dev/null 2>&1 || true
+}
+
+# sit_exec_as <container> <user> <cmd…> — run a command inside a running
+# container as the given user.
+sit_exec_as() {
+	local container=$1 user=$2; shift 2
+	podman exec --user "$user" "$container" "$@"
+}

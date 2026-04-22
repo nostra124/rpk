@@ -2,7 +2,7 @@
 id: FEAT-007
 type: feature
 priority: medium
-status: open
+status: done
 depends-on: FEAT-005
 ---
 
