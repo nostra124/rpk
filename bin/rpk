@@ -1156,14 +1156,45 @@ command:install() {
 			mkdir -p "$SYSTEM_TARGET/var"
 		fi
 
+		local BUNDLE_DIR
+		BUNDLE_DIR=$(command:bundle "$PACKAGE_TYPE")
+		local TARGET_DIR
+		TARGET_DIR=$(command:target "$PACKAGE_TYPE")
+
 		for BUNDLED_PACKAGE in $(command:bundles); do
-			pushd "$(command:bundle "$PACKAGE_TYPE")" > /dev/null || exit 1
-			command:action "$STOW" --target="$(command:target "$PACKAGE_TYPE")" --delete "$BUNDLED_PACKAGE"
+			pushd "$BUNDLE_DIR" > /dev/null || exit 1
+			command:action "$STOW" --target="$TARGET_DIR" --delete "$BUNDLED_PACKAGE"
 			popd > /dev/null || true
+			# Under -f, also drop the old bundle dir itself. Bundles
+			# produced by the pre-copy Makefile contain absolute
+			# symlinks that stow --delete refuses to touch — rm -rf
+			# is the only way to retire them cleanly.
+			if [ -n "$SELF_FORCE" ] && [ "$BUNDLED_PACKAGE" != "$PACKAGE-$VERSION" ]; then
+				command:action rm -rf -- "$BUNDLE_DIR/$BUNDLED_PACKAGE"
+			fi
 		done
 
-		pushd "$(command:bundle "$PACKAGE_TYPE")" > /dev/null || exit 1
-		command:action "$STOW" --target="$(command:target "$PACKAGE_TYPE")" "$PACKAGE-$VERSION"
+		# Under -f, pre-remove any non-stow-owned target files that the
+		# about-to-happen stow would refuse to overwrite. Covers:
+		#   * "cannot stow … over existing target X since …"
+		#     (regular file / directory in the way)
+		#   * "existing target is not owned by stow: Y"
+		#     (absolute symlink or foreign file at the target path)
+		if [ -n "$SELF_FORCE" ]; then
+			local conflicts
+			conflicts=$(cd "$BUNDLE_DIR" && "$STOW" --no --verbose=2 \
+				--target="$TARGET_DIR" "$PACKAGE-$VERSION" 2>&1 \
+				| sed -n \
+					-e 's|.*over existing target \([^ ]*\) since.*|\1|p' \
+					-e 's|.*not owned by stow: \(.*\)|\1|p')
+			for rel in $conflicts; do
+				info "removing conflicting target $TARGET_DIR/$rel (force mode)"
+				rm -f -- "$TARGET_DIR/$rel"
+			done
+		fi
+
+		pushd "$BUNDLE_DIR" > /dev/null || exit 1
+		command:action "$STOW" --target="$TARGET_DIR" "$PACKAGE-$VERSION"
 		popd > /dev/null || true
 		mkdir -p "$SELF_DATA" && echo "$VERSION" | tee "$SELF_DATA/$PACKAGE" > /dev/null
 	fi
