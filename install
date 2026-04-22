@@ -1,0 +1,112 @@
+#!/bin/bash
+#
+# rpk install script.
+#
+# Usage:
+#   ./install                     — install from this checkout
+#   ./install --prefix=DIR        — custom prefix (default: $HOME/.local)
+#   curl -fsSL <URL> | bash       — clone from GitHub, then install
+#
+# When the script is run from inside an rpk checkout (sibling bin/rpk +
+# Makefile detected), it installs from there. Otherwise it clones the
+# configured repo and installs from the clone.
+
+set -eu
+
+REPO_URL="${RPK_REPO_URL:-https://github.com/nostra124/rpk.git}"
+REPO_BRANCH="${RPK_REPO_BRANCH:-master}"
+PREFIX="${RPK_PREFIX:-$HOME/.local}"
+
+for arg; do
+	case "$arg" in
+		--prefix=*) PREFIX="${arg#*=}" ;;
+		--repo=*)   REPO_URL="${arg#*=}" ;;
+		--branch=*) REPO_BRANCH="${arg#*=}" ;;
+		-h|--help)
+			cat <<HELP
+Usage: $(basename "$0") [OPTIONS]
+
+Install rpk from the current checkout, or bootstrap from GitHub.
+
+Options:
+    --prefix=DIR       install prefix (default: \$HOME/.local)
+    --repo=URL         git URL to clone when not run from a checkout
+                       (default: $REPO_URL)
+    --branch=NAME      branch to clone (default: master)
+    -h, --help         show this help
+
+Environment overrides (same as flags):
+    RPK_PREFIX, RPK_REPO_URL, RPK_REPO_BRANCH
+
+Bootstrap mode requires git. The default repo is private — clone needs
+an SSH key or HTTPS credentials (e.g. a configured credential helper
+such as 'gh auth setup-git' or osxkeychain).
+HELP
+			exit 0
+			;;
+		*)  echo "unknown option: $arg (try --help)" >&2; exit 1 ;;
+	esac
+done
+
+need() {
+	command -v "$1" >/dev/null 2>&1 || { echo "missing prerequisite: $1" >&2; exit 1; }
+}
+
+find_checkout() {
+	local dir
+	dir=$(cd "$(dirname -- "$0")" 2>/dev/null && pwd) || return 1
+	if [ -x "$dir/bin/rpk" ] && [ -f "$dir/Makefile" ]; then
+		printf '%s\n' "$dir"
+		return 0
+	fi
+	return 1
+}
+
+need make
+
+SOURCE=""
+CLEANUP=""
+if SOURCE=$(find_checkout); then
+	echo "→ installing rpk from local checkout: $SOURCE"
+else
+	need git
+	CLEANUP=$(mktemp -d "${TMPDIR:-/tmp}/rpk-install.XXXXXX")
+	trap 'rm -rf -- "$CLEANUP"' EXIT
+	SOURCE="$CLEANUP/rpk"
+	echo "→ cloning $REPO_URL (branch: $REPO_BRANCH)..."
+	if ! git clone --depth 1 --branch "$REPO_BRANCH" -- "$REPO_URL" "$SOURCE"; then
+		{
+			echo ""
+			echo "clone failed. Common causes:"
+			echo "  - missing credentials for a private repo. Run 'gh auth setup-git'"
+			echo "    (with a valid gh login) or configure an ssh key."
+			echo "  - wrong branch name. Pass --branch=<name> to override."
+			echo "  - no network."
+		} >&2
+		exit 1
+	fi
+fi
+
+# Soft-warn about the deps rpk itself needs at runtime (not build-time).
+for dep in stow rsync git; do
+	if ! command -v "$dep" >/dev/null 2>&1; then
+		echo "note: $dep not found on PATH — rpk needs it at runtime." >&2
+		echo "      install via your package manager or run '.rpk/depends/$dep' from the source tree." >&2
+	fi
+done
+
+cd -- "$SOURCE"
+./configure --prefix="$PREFIX"
+make install
+
+cat <<DONE
+
+✓ rpk installed to $PREFIX
+
+Next steps:
+  - Ensure $PREFIX/bin is on your PATH (add 'export PATH=$PREFIX/bin:\$PATH' to
+    your shell rc if needed).
+  - Read: 'man rpk' or $PREFIX/share/doc/rpk/PACKAGING.md
+  - Activate agent skills (Claude Code / opencode / raven):
+      cd $SOURCE && make install-skills-user INSTALL_PREFIX=$PREFIX
+DONE
