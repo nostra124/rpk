@@ -38,7 +38,11 @@ Enable verbose mode.
 Quiet mode; suppress informational output.
 .TP
 .B \-f
-Force mode; for example, re-package a version whose bundle already exists.
+Force mode. Re-package a version whose bundle already exists; pass
+\fB\-\-force\fR through to every \fBgit push\fR and \fBgit fetch\fR
+invoked by
+.BR push ", " pull ", " release ", " stage " and " sync ,
+so divergent remote histories can be overwritten or pulled in.
 .SH COMMANDS
 .SS General
 .TP

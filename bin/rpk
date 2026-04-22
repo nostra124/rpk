@@ -771,9 +771,11 @@ command:stage() {
 	else
 		info "$PACKAGE - updating local package repository"
 		pushd "$WORKTREE" > /dev/null || exit 1
+		local FORCE_OPT=()
+		[ -n "$SELF_FORCE" ] && FORCE_OPT=(--force)
 		git remote remove local 2>/dev/null || true
 		git remote add local "$BARE_REPO" 2>&1 || warn "failed to add local remote"
-		git fetch --tags local
+		git fetch --tags "${FORCE_OPT[@]}" local
 		git pull local "$(git rev-parse --abbrev-ref HEAD)"
 		popd > /dev/null || true
 	fi
@@ -789,14 +791,16 @@ command:pull() {
 	done
 
 	pushd "$WORKTREE" > /dev/null || exit 1
+	local FORCE_OPT=()
+	[ -n "$SELF_FORCE" ] && FORCE_OPT=(--force)
 	local BRANCH=$(git rev-parse --abbrev-ref HEAD)
 	if [ ${#ACCOUNTS[@]} -eq 0 ]; then
-		git fetch --tags local || { popd > /dev/null || true; fatal "failed to fetch from local"; }
+		git fetch --tags "${FORCE_OPT[@]}" local || { popd > /dev/null || true; fatal "failed to fetch from local"; }
 		git merge "local/$BRANCH" || { popd > /dev/null || true; fatal "failed to merge from local"; }
 		for REMOTE in $(git remote | grep '@'); do
 			ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || continue
 			info "pulling from $REMOTE"
-			git fetch --tags "$REMOTE" || warn "failed to fetch from $REMOTE"
+			git fetch --tags "${FORCE_OPT[@]}" "$REMOTE" || warn "failed to fetch from $REMOTE"
 			git merge "$REMOTE/$BRANCH" || warn "failed to merge from $REMOTE"
 		done
 	else
@@ -804,7 +808,7 @@ command:pull() {
 			if ssh "$ACCOUNT" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
 				ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
 				info "pulling from $ACCOUNT"
-				git fetch --tags "$ACCOUNT" || warn "failed to fetch from $ACCOUNT"
+				git fetch --tags "${FORCE_OPT[@]}" "$ACCOUNT" || warn "failed to fetch from $ACCOUNT"
 				git merge "$ACCOUNT/$BRANCH" || warn "failed to merge from $ACCOUNT"
 			else
 				warn "remote bare repo $ACCOUNT:~/.local/var/lib/repo/$PACKAGE does not exist"
@@ -824,18 +828,20 @@ command:push() {
 	done
 
 	pushd "$WORKTREE" > /dev/null || exit 1
+	local FORCE_OPT=()
+	[ -n "$SELF_FORCE" ] && FORCE_OPT=(--force)
 	if [ ${#ACCOUNTS[@]} -eq 0 ]; then
-		git push -u local HEAD --tags || { popd > /dev/null || true; fatal "failed to push to local"; }
+		git push "${FORCE_OPT[@]}" -u local HEAD --tags || { popd > /dev/null || true; fatal "failed to push to local"; }
 		for REMOTE in $(git remote | grep '@'); do
 			if ssh "$REMOTE" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
 				ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || true
 				info "pushing to $REMOTE"
-				git push "$REMOTE" HEAD --tags || warn "failed to push to $REMOTE"
+				git push "${FORCE_OPT[@]}" "$REMOTE" HEAD --tags || warn "failed to push to $REMOTE"
 			else
 				info "creating bare repo on $REMOTE"
 				ssh "$REMOTE" "mkdir -p ~/.local/var/lib/repo && git init --bare -b main ~/.local/var/lib/repo/$PACKAGE" || warn "failed to create bare repo on $REMOTE"
 				ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || true
-				git push "$REMOTE" HEAD --tags || warn "failed to push to $REMOTE"
+				git push "${FORCE_OPT[@]}" "$REMOTE" HEAD --tags || warn "failed to push to $REMOTE"
 			fi
 		done
 	else
@@ -843,12 +849,12 @@ command:push() {
 			if ssh "$ACCOUNT" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
 				ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
 				info "pushing to $ACCOUNT"
-				git push "$ACCOUNT" HEAD --tags || warn "failed to push to $ACCOUNT"
+				git push "${FORCE_OPT[@]}" "$ACCOUNT" HEAD --tags || warn "failed to push to $ACCOUNT"
 			else
 				info "creating bare repo on $ACCOUNT"
 				ssh "$ACCOUNT" "mkdir -p ~/.local/var/lib/repo && git init --bare -b main ~/.local/var/lib/repo/$PACKAGE" || warn "failed to create bare repo on $ACCOUNT"
 				ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
-				git push "$ACCOUNT" HEAD --tags || warn "failed to push to $ACCOUNT"
+				git push "${FORCE_OPT[@]}" "$ACCOUNT" HEAD --tags || warn "failed to push to $ACCOUNT"
 			fi
 		done
 	fi
@@ -865,20 +871,22 @@ command:release() {
 	done
 
 	pushd "$WORKTREE" > /dev/null || exit 1
+	local FORCE_OPT=()
+	[ -n "$SELF_FORCE" ] && FORCE_OPT=(--force)
 	info "$PACKAGE - pushing to local (local bare repo)"
-	git push -u local HEAD --tags || { popd > /dev/null || true; fatal "failed to push to local"; }
+	git push "${FORCE_OPT[@]}" -u local HEAD --tags || { popd > /dev/null || true; fatal "failed to push to local"; }
 
 	if [ ${#ACCOUNTS[@]} -gt 0 ]; then
 		for ACCOUNT in "${ACCOUNTS[@]}"; do
 			if ssh "$ACCOUNT" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
 				ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
 				info "$PACKAGE - pushing to $ACCOUNT (remote)"
-				git push "$ACCOUNT" HEAD --tags || warn "$PACKAGE - failed to push to $ACCOUNT"
+				git push "${FORCE_OPT[@]}" "$ACCOUNT" HEAD --tags || warn "$PACKAGE - failed to push to $ACCOUNT"
 			else
 				info "$PACKAGE - creating bare repo on $ACCOUNT"
 				ssh "$ACCOUNT" "mkdir -p ~/.local/var/lib/repo && git init --bare -b main ~/.local/var/lib/repo/$PACKAGE" || warn "$PACKAGE - failed to create bare repo on $ACCOUNT"
 				ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
-				git push "$ACCOUNT" HEAD --tags || warn "$PACKAGE - failed to push to $ACCOUNT"
+				git push "${FORCE_OPT[@]}" "$ACCOUNT" HEAD --tags || warn "$PACKAGE - failed to push to $ACCOUNT"
 			fi
 
 			info "$PACKAGE - uploading rpk to $ACCOUNT"
@@ -892,12 +900,12 @@ command:release() {
 			if ssh "$REMOTE" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
 				ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || continue
 				info "$PACKAGE - pushing to $REMOTE (remote)"
-				git push "$REMOTE" HEAD --tags || warn "$PACKAGE - failed to push to $REMOTE"
+				git push "${FORCE_OPT[@]}" "$REMOTE" HEAD --tags || warn "$PACKAGE - failed to push to $REMOTE"
 			else
 				info "$PACKAGE - creating bare repo on $REMOTE"
 				ssh "$REMOTE" "mkdir -p ~/.local/var/lib/repo && git init --bare -b main ~/.local/var/lib/repo/$PACKAGE" || warn "$PACKAGE - failed to create bare repo on $REMOTE"
 				ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || true
-				git push "$REMOTE" HEAD --tags || warn "$PACKAGE - failed to push to $REMOTE"
+				git push "${FORCE_OPT[@]}" "$REMOTE" HEAD --tags || warn "$PACKAGE - failed to push to $REMOTE"
 			fi
 
 			info "$PACKAGE - uploading rpk to $REMOTE"
@@ -980,13 +988,15 @@ command:sync() {
 		fi
 	elif [ -d "$WORKTREE" ]; then
 		pushd "$WORKTREE" > /dev/null || exit 1
+		local FORCE_OPT=()
+		[ -n "$SELF_FORCE" ] && FORCE_OPT=(--force)
 		git stash && git clean -fd
-		git fetch --tags local
+		git fetch --tags "${FORCE_OPT[@]}" local
 		git merge "local/$(git rev-parse --abbrev-ref HEAD)"
-		git push -u local HEAD --tags
-		git fetch --tags "$ACCOUNT"
+		git push "${FORCE_OPT[@]}" -u local HEAD --tags
+		git fetch --tags "${FORCE_OPT[@]}" "$ACCOUNT"
 		git merge "$ACCOUNT/$(git rev-parse --abbrev-ref HEAD)"
-		git push -u "$ACCOUNT" HEAD --tags
+		git push "${FORCE_OPT[@]}" -u "$ACCOUNT" HEAD --tags
 		popd > /dev/null || true
 	else
 		fatal "$WORKTREE is not a directory"
