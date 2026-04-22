@@ -16,9 +16,10 @@ load helpers
 }
 
 @test "no stale top-level VERSION= constant (BUG-003 regression)" {
-	# A top-level VERSION='...' at column 0 would mask the ledger-based
-	# version source. Function-local `VERSION=$1` etc. start with a tab
-	# or spaces and are fine.
-	run grep -nE '^VERSION=' "$RPK_BIN"
-	[ "$status" -eq 1 ]  # grep exits 1 on "no match", which is what we want
+	# The original bug was a hardcoded `VERSION='1.0.0'` near the top of the
+	# script. Look for `^VERSION=` in the first 50 lines only — beyond that
+	# we're inside function bodies or heredoc templates (e.g. init scaffolds
+	# a `.rpk/package` that legitimately uses `VERSION=$1`).
+	run bash -c "head -50 '$RPK_BIN' | grep -nE '^VERSION='"
+	[ "$status" -eq 1 ]
 }

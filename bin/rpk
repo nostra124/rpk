@@ -1003,19 +1003,13 @@ command:package() {
 	test -z "$VERSION" && local VERSION=$(command:versions | tail -1)
 
 	if [ -x ".$SELF/package" ]; then
-		if [ "$(command:type)" = "system" ]; then
-			if [ "$EUID" -eq 0 ]; then
-				local PREFIX=$(command:bundle system)/$PACKAGE-$VERSION
-			else
-				fatal "system packages have to be packaged as root user"
-			fi
-		elif [ "$(command:type)" = "home" ]; then
-			local PREFIX=$(command:bundle home)/$PACKAGE-$VERSION
-		elif [ "$(command:type)" = "user" ]; then
-			local PREFIX=$(command:bundle user)/$PACKAGE-$VERSION
-		else
-			fatal "unknown $SELF type of package $PACKAGE"
-		fi
+		local PACKAGE_TYPE=$(command:type)
+		case "$PACKAGE_TYPE" in
+			system) [ "$EUID" -eq 0 ] || fatal "system packages have to be packaged as root user" ;;
+			user) ;;
+			*) fatal "unknown $SELF type of package $PACKAGE" ;;
+		esac
+		local PREFIX=$(command:bundle "$PACKAGE_TYPE")/$PACKAGE-$VERSION
 
 		if [ -d "$PREFIX" ]; then
 			if [ -z "$SELF_FORCE" ]; then

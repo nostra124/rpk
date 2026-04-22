@@ -2,7 +2,7 @@
 id: BUG-004
 type: bug
 priority: low
-status: open
+status: done
 ---
 
 # BUG-004: `command:package` has an unreachable `home` branch
