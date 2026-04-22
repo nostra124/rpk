@@ -1,0 +1,13 @@
+#!/bin/bash
+
+if [ -x /opt/local/bin/port ]; then
+	which shellcheck > /dev/null || rpk action sudo port install shellcheck
+elif [ -x /usr/bin/apt-get ]; then
+	which shellcheck > /dev/null || rpk action sudo apt-get --yes install shellcheck
+elif [ -x /usr/local/bin/brew ] || [ -x /opt/homebrew/bin/brew ]; then
+	which shellcheck > /dev/null || rpk action brew install shellcheck
+elif [ -x /usr/bin/dnf ]; then
+	which shellcheck > /dev/null || rpk action sudo dnf install -y ShellCheck
+elif [ -x /usr/bin/pacman ]; then
+	which shellcheck > /dev/null || rpk action sudo pacman -S --noconfirm shellcheck
+fi

@@ -5,16 +5,15 @@ function die() {
 	exit 100
 }
 
-SOURCE=$(git rev-parse --show-toplevel 2> /dev/null)
-PACKAGE=$("$SOURCE/bin/rpk" identity)
+PACKAGE=$(rpk identity)
 VERSION=$1
 
-test -z "$VERSION" && VERSION=$("$SOURCE/bin/rpk" versions | tail -1)
+test -z "$VERSION" && VERSION=$(rpk versions | tail -1)
 
-COMMIT=$("$SOURCE/bin/rpk" commit "$VERSION")
+COMMIT=$(rpk commit "$VERSION")
 test -z "$COMMIT" && die "version $VERSION has no commit hash"
 
-TARGET=$("$SOURCE/bin/rpk" bundle "$("$SOURCE/bin/rpk" type)")/$PACKAGE-$VERSION
+TARGET=$(rpk bundle "$(rpk type)")/$PACKAGE-$VERSION
 
 BRANCH=$(git branch --show-current)
 trap "git checkout $BRANCH --force" EXIT
