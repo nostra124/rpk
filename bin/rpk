@@ -614,10 +614,15 @@ EOF
 	fi
 
 	git add .$SELF
-	if git diff --cached --quiet -- .$SELF; then
+	[ -f AGENTS.md ] && git add AGENTS.md
+	if git diff --cached --quiet -- .$SELF AGENTS.md; then
 		info "no changes to commit"
+	elif [ -f AGENTS.md ]; then
+		git commit -m "initialized .$SELF + AGENTS.md" .$SELF AGENTS.md \
+			|| { popd > /dev/null; fatal "failed to commit .$SELF files"; }
 	else
-		git commit -m "initialized .$SELF" .$SELF || { popd > /dev/null; fatal "failed to commit .$SELF files"; }
+		git commit -m "initialized .$SELF" .$SELF \
+			|| { popd > /dev/null; fatal "failed to commit .$SELF files"; }
 	fi
 	push:branches local || true
 	popd > /dev/null

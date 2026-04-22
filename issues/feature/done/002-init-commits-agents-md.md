@@ -2,7 +2,7 @@
 id: FEAT-002
 type: feature
 priority: low
-status: open
+status: done
 ---
 
 # `rpk init` should commit AGENTS.md alongside `.rpk/`

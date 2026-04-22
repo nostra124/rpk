@@ -29,6 +29,32 @@ teardown() { sandbox_teardown; }
 	[ -f "$repo/AGENTS.md" ]
 }
 
+@test "init commits AGENTS.md along with .rpk/ (FEAT-002)" {
+	local repo
+	repo=$(make_repo "myproject")
+	cd "$repo"
+	rpk init
+	# AGENTS.md should be tracked now, not untracked.
+	run git -C "$repo" ls-files AGENTS.md
+	[ "$output" = "AGENTS.md" ]
+	# And present in HEAD's tree.
+	run git -C "$repo" show HEAD:AGENTS.md
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"rpk package"* ]]
+}
+
+@test "init does not overwrite a pre-existing AGENTS.md" {
+	local repo
+	repo=$(make_repo "myproject")
+	cd "$repo"
+	echo "# My existing AGENTS.md" > "$repo/AGENTS.md"
+	git -C "$repo" add AGENTS.md
+	git -C "$repo" commit -q -m "user authored agents.md"
+	rpk init
+	run cat "$repo/AGENTS.md"
+	[ "$output" = "# My existing AGENTS.md" ]
+}
+
 @test "init writes type=user by default" {
 	local repo
 	repo=$(make_repo "myproject")
