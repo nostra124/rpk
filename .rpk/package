@@ -14,14 +14,32 @@ COMMIT=$(bin/rpk commit "$VERSION")
 test -z "$COMMIT" && die "version $VERSION has no commit hash"
 
 TARGET=$(bin/rpk bundle "$(bin/rpk type)")/$PACKAGE-$VERSION
-
 BRANCH=$(git branch --show-current)
-trap 'git checkout "$BRANCH" --force' EXIT
+
+# If the worktree has uncommitted changes (or untracked files that git
+# would otherwise refuse to overwrite on checkout), stash them so the
+# `git checkout "$COMMIT"` below succeeds. Dev iteration — editing
+# rpk's own source and running ./install or `rpk rpk install` — relies
+# on this. Restoration order on exit: checkout branch first, then pop
+# the stash if we created one.
+STASH=""
+if ! git diff --quiet --ignore-submodules HEAD -- \
+   || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+	if git stash push --include-untracked --quiet -m "rpk package build"; then
+		STASH=1
+	fi
+fi
+
+cleanup() {
+	local rc=$?
+	git checkout "$BRANCH" --force 2>/dev/null || true
+	[ -n "$STASH" ] && git stash pop --quiet 2>/dev/null || true
+	exit "$rc"
+}
+trap cleanup EXIT
 
 git config advice.detachedHead false
 git checkout "$COMMIT" || die "failed to checkout $COMMIT for version $VERSION"
 
 ./configure --prefix="$TARGET"
 make install
-
-git checkout "$BRANCH" --force

@@ -13,8 +13,10 @@ repo_root() { cd "$BATS_TEST_DIRNAME/../.." && pwd; }
 
 @test "make install populates only rpk-scoped paths under INSTALL_PREFIX" {
 	make -C "$(repo_root)" install INSTALL_PREFIX="$(prefix)" >/dev/null
-	# Expected artefacts
-	[ -L "$(prefix)/bin/rpk" ]
+	# install-bin copies (not symlinks) so the installed tree is self-
+	# contained and safe to use as a stow bundle source.
+	[ -x "$(prefix)/bin/rpk" ]
+	[ ! -L "$(prefix)/bin/rpk" ]
 	[ -f "$(prefix)/etc/bash_completion.d/rpk" ]
 	[ -f "$(prefix)/share/man/man1/rpk.1" ]
 	[ -f "$(prefix)/share/doc/rpk/PACKAGING.md" ]

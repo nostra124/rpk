@@ -1,4 +1,4 @@
-.PHONY: all check check-sit test lint clean install install-bin install-etc install-share install-man install-doc install-skills install-skills-user uninstall-skills-user activate-skills help
+.PHONY: all check check-sit test lint clean install install-bin install-etc install-share install-man install-doc install-skills install-skills-user uninstall-skills-user help
 
 -include config.mk
 
@@ -75,24 +75,14 @@ lint:
 	@command -v shellcheck >/dev/null 2>&1 || { echo "shellcheck not installed — install with 'rpk rpk depends' or your package manager"; exit 1; }
 	@shellcheck --severity=warning $(SCRIPTS) $(RPK_SCRIPTS)
 
-install: install-bin install-etc install-share install-man install-doc install-skills activate-skills
+install: install-bin install-etc install-share install-man install-doc install-skills
 	@echo "Installation complete."
-
-# Runs the .rpk/install hook against the freshly installed tree to activate
-# agent skills for any user config dir that already exists (Claude Code,
-# opencode, raven). The hook's own logic is a no-op where dirs are absent,
-# so this never creates dotfile trees on its own.
-activate-skills:
-	@if [ -x "$(CURDIR)/.rpk/install" ]; then \
-		PATH="$(DESTDIR)$(INSTALL_BIN):$$PATH" "$(CURDIR)/.rpk/install" 2>&1 || true; \
-	fi
 
 install-bin:
 	@echo "Installing scripts to $(INSTALL_BIN)..."
 	@mkdir -p "$(DESTDIR)$(INSTALL_BIN)"
 	@for script in $(SCRIPTS); do \
-		base=$$(basename "$$script"); \
-		ln -sf "$$script" "$(DESTDIR)$(INSTALL_BIN)/$$base"; \
+		install -m 0755 "$$script" "$(DESTDIR)$(INSTALL_BIN)/"; \
 	done
 
 install-etc:

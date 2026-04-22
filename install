@@ -1,50 +1,57 @@
 #!/bin/bash
 #
-# rpk install script.
+# rpk bootstrap installer.
 #
 # Usage:
 #   ./install                     — install from this checkout
-#   ./install --prefix=DIR        — custom prefix (default: $HOME/.local)
 #   curl -fsSL <URL> | bash       — clone from GitHub, then install
 #
-# When the script is run from inside an rpk checkout (sibling bin/rpk +
-# Makefile detected), it installs from there. Otherwise it clones the
-# configured repo and installs from the clone.
+# Executes the full rpk install pipeline:
+#
+#   1. bootstrap: locate a checkout (or clone from GitHub into a tempdir)
+#   2. hand off to `rpk install`, which in turn:
+#      a. runs `.rpk/package` — ./configure && make install into the
+#         per-version bundle at $(rpk bundle user)/rpk-<version>/
+#      b. GNU Stow symlinks the bundle into $(rpk target user) (~/.local)
+#      c. runs `.rpk/install` — activates the rpk-author agent skill for
+#         any user config dir that already exists (~/.claude, ~/.config/
+#         opencode, ~/.raven/workspace), never creating dotfile trees
+#
+# Installation target is always $HOME/.local. For a custom prefix,
+# use `make install INSTALL_PREFIX=<path>` in a checkout directly.
 
 set -eu
 
 REPO_URL="${RPK_REPO_URL:-https://github.com/nostra124/rpk.git}"
 REPO_BRANCH="${RPK_REPO_BRANCH:-master}"
-PREFIX="${RPK_PREFIX:-$HOME/.local}"
 
 for arg; do
 	case "$arg" in
-		--prefix=*) PREFIX="${arg#*=}" ;;
 		--repo=*)   REPO_URL="${arg#*=}" ;;
 		--branch=*) REPO_BRANCH="${arg#*=}" ;;
 		-h|--help)
 			cat <<HELP
 Usage: $(basename "$0") [OPTIONS]
 
-Install rpk from the current checkout, or bootstrap from GitHub.
+Install rpk from the current checkout, or bootstrap from GitHub, and
+hand off to 'rpk install' (build versioned bundle + stow + activate
+agent skills).
 
 Options:
-    --prefix=DIR       install prefix (default: \$HOME/.local)
-    --repo=URL         git URL to clone when not run from a checkout
-                       (default: $REPO_URL)
-    --branch=NAME      branch to clone (default: master)
-    -h, --help         show this help
+    --repo=URL       git URL to clone when not run from a checkout
+                     (default: $REPO_URL)
+    --branch=NAME    branch to clone (default: master)
+    -h, --help       show this help
 
 Environment overrides (same as flags):
-    RPK_PREFIX, RPK_REPO_URL, RPK_REPO_BRANCH
+    RPK_REPO_URL, RPK_REPO_BRANCH
 
-Bootstrap mode requires git. The default repo is private — clone needs
-an SSH key or HTTPS credentials (e.g. a configured credential helper
-such as 'gh auth setup-git' or osxkeychain).
+Installation target is always \$HOME/.local. For a different prefix,
+use 'make install INSTALL_PREFIX=<path>' in a checkout directly.
 HELP
 			exit 0
 			;;
-		*)  echo "unknown option: $arg (try --help)" >&2; exit 1 ;;
+		*) echo "unknown option: $arg (try --help)" >&2; exit 1 ;;
 	esac
 done
 
@@ -55,31 +62,29 @@ need() {
 find_checkout() {
 	local dir
 	dir=$(cd "$(dirname -- "$0")" 2>/dev/null && pwd) || return 1
-	if [ -x "$dir/bin/rpk" ] && [ -f "$dir/Makefile" ]; then
-		printf '%s\n' "$dir"
-		return 0
-	fi
+	[ -x "$dir/bin/rpk" ] && [ -f "$dir/.rpk/package" ] && printf '%s\n' "$dir" && return 0
 	return 1
 }
 
+need git
 need make
+need stow
 
 SOURCE=""
 CLEANUP=""
 if SOURCE=$(find_checkout); then
-	echo "→ installing rpk from local checkout: $SOURCE"
+	echo "→ bootstrapping rpk from local checkout: $SOURCE"
 else
-	need git
 	CLEANUP=$(mktemp -d "${TMPDIR:-/tmp}/rpk-install.XXXXXX")
 	trap 'rm -rf -- "$CLEANUP"' EXIT
 	SOURCE="$CLEANUP/rpk"
-	echo "→ cloning $REPO_URL (branch: $REPO_BRANCH)..."
+	echo "→ cloning $REPO_URL (branch: $REPO_BRANCH) into $SOURCE..."
 	if ! git clone --depth 1 --branch "$REPO_BRANCH" -- "$REPO_URL" "$SOURCE"; then
 		{
 			echo ""
 			echo "clone failed. Common causes:"
-			echo "  - missing credentials for a private repo. Run 'gh auth setup-git'"
-			echo "    (with a valid gh login) or configure an ssh key."
+			echo "  - missing credentials for a private repo (run 'gh auth setup-git'"
+			echo "    or configure an ssh key)."
 			echo "  - wrong branch name. Pass --branch=<name> to override."
 			echo "  - no network."
 		} >&2
@@ -87,28 +92,33 @@ else
 	fi
 fi
 
-# Soft-warn about the deps rpk itself needs at runtime (not build-time).
+# Soft-warn about deps rpk needs at runtime (beyond build-time).
 for dep in stow rsync git; do
 	if ! command -v "$dep" >/dev/null 2>&1; then
 		echo "note: $dep not found on PATH — rpk needs it at runtime." >&2
-		echo "      install via your package manager or run '.rpk/depends/$dep' from the source tree." >&2
 	fi
 done
 
+# Hand off to rpk's own install pipeline. cwd=$SOURCE triggers cwd-based
+# package detection (dispatcher reads `.rpk/identity` → "rpk",
+# WORKTREE=$SOURCE). Prepending $SOURCE/bin to PATH ensures `.rpk/package`
+# (which invokes `bin/rpk …` via relative path) and `.rpk/install`
+# (which invokes `rpk target` / `rpk type`) both resolve the binary.
 cd -- "$SOURCE"
-./configure --prefix="$PREFIX"
-make install
+echo "→ handing off to 'rpk install' (bundle + stow + post-install hook)..."
+PATH="$SOURCE/bin:$PATH" ./bin/rpk install
 
+TARGET="$HOME/.local"
 cat <<DONE
 
-✓ rpk installed to $PREFIX
+✓ rpk installed to $TARGET
 
 Agent skills (Claude Code / opencode / raven) were activated automatically
-for any detected user config dir. To re-activate manually later:
-    cd $SOURCE && make install-skills-user INSTALL_PREFIX=$PREFIX
+for any detected user config dir. Run 'make install-skills-user' from a
+checkout to re-activate manually later.
 
 Next steps:
-  - Ensure $PREFIX/bin is on your PATH (add 'export PATH=$PREFIX/bin:\$PATH' to
-    your shell rc if needed).
-  - Read: 'man rpk' or $PREFIX/share/doc/rpk/PACKAGING.md
+  - Ensure $TARGET/bin is on your PATH (add 'export PATH=$TARGET/bin:\$PATH'
+    to your shell rc if needed).
+  - Read: 'man rpk' · $TARGET/share/doc/rpk/PACKAGING.md
 DONE
