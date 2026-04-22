@@ -1,0 +1,39 @@
+# Upstream half of the release SIT pair.
+# - rpk is installed.
+# - rpklocal user, with a trusted SSH key for rpkremote@<receiver-host>.
+# - A seeded buildable test package under rpklocal's ~/.local/src/mypkg.
+FROM alpine:3.19
+
+RUN apk add --no-cache \
+	bash git make rsync stow bats coreutils grep sed \
+	openssh-keygen openssh-client
+
+WORKDIR /src
+COPY bin/ bin/
+COPY etc/ etc/
+COPY man/ man/
+COPY docs/ docs/
+COPY skills/ skills/
+COPY Makefile configure ./
+
+RUN ./configure --prefix=/usr/local && make install
+
+RUN adduser -D -s /bin/bash rpklocal \
+ && mkdir -p /home/rpklocal/.ssh
+
+# Use the fixture keypair whose public half is baked into the receiver image.
+COPY tests/sit/fixtures/upstream-id_ed25519     /home/rpklocal/.ssh/id_ed25519
+COPY tests/sit/fixtures/upstream-id_ed25519.pub /home/rpklocal/.ssh/id_ed25519.pub
+RUN printf 'Host *\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n  LogLevel ERROR\n' \
+    > /home/rpklocal/.ssh/config \
+ && chown -R rpklocal:rpklocal /home/rpklocal/.ssh \
+ && chmod 700 /home/rpklocal/.ssh \
+ && chmod 600 /home/rpklocal/.ssh/id_ed25519 /home/rpklocal/.ssh/config
+
+# Seed a minimal buildable package as rpklocal. `su -` clears PATH, so use
+# `su rpklocal` (no -) to inherit /usr/local/bin.
+COPY tests/sit/fixtures/seed-upstream.sh /usr/local/libexec/seed-upstream.sh
+RUN chmod +x /usr/local/libexec/seed-upstream.sh \
+ && su rpklocal -c 'cd $HOME && PATH=/usr/local/bin:/usr/bin:/bin /usr/local/libexec/seed-upstream.sh'
+
+CMD ["sleep", "infinity"]

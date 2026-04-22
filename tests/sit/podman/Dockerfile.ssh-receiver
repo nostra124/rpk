@@ -1,0 +1,25 @@
+# Receiver half of the release SIT pair.
+# - rpk is NOT pre-installed (release's scp is the only way rpk lands here).
+# - All build deps rpk's package scripts might need are present.
+# - sshd accepts passwordless key-based auth for user rpkremote.
+FROM alpine:3.19
+
+RUN apk add --no-cache \
+	bash git make rsync stow coreutils grep sed \
+	openssh-server openssh-keygen
+
+RUN ssh-keygen -A
+
+RUN adduser -D -s /bin/bash rpkremote \
+ && passwd -u rpkremote \
+ && mkdir -p /home/rpkremote/.ssh
+
+# Bake the trusted public key in at build time — the matching private key
+# lives on the upstream image (see tests/sit/fixtures/upstream-id_ed25519.pub).
+COPY tests/sit/fixtures/upstream-id_ed25519.pub /home/rpkremote/.ssh/authorized_keys
+RUN chown -R rpkremote:rpkremote /home/rpkremote/.ssh \
+ && chmod 700 /home/rpkremote/.ssh \
+ && chmod 600 /home/rpkremote/.ssh/authorized_keys
+
+EXPOSE 22
+CMD ["/usr/sbin/sshd", "-D", "-e"]

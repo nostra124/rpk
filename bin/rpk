@@ -572,6 +572,11 @@ command:init() {
 	local REPO_NAME=$(command:identity)
 	pushd "$WORKTREE" > /dev/null || exit 1
 	mkdir -p "$SELF_REPO"
+	if [ ! -d "$SELF_REPO/$REPO_NAME" ]; then
+		info "creating local bare repo at $SELF_REPO/$REPO_NAME"
+		git init --bare -q -b main "$SELF_REPO/$REPO_NAME" \
+			|| { popd > /dev/null || true; fatal "failed to init local bare repo"; }
+	fi
 	if git remote | grep -q "^local$"; then
 		info "local remote already exists"
 	else
@@ -828,7 +833,7 @@ command:push() {
 				git push "$REMOTE" HEAD --tags || warn "failed to push to $REMOTE"
 			else
 				info "creating bare repo on $REMOTE"
-				ssh "$REMOTE" "mkdir -p ~/.local/var/lib/repo && git init --bare ~/.local/var/lib/repo/$PACKAGE" || warn "failed to create bare repo on $REMOTE"
+				ssh "$REMOTE" "mkdir -p ~/.local/var/lib/repo && git init --bare -b main ~/.local/var/lib/repo/$PACKAGE" || warn "failed to create bare repo on $REMOTE"
 				ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || true
 				git push "$REMOTE" HEAD --tags || warn "failed to push to $REMOTE"
 			fi
@@ -841,7 +846,7 @@ command:push() {
 				git push "$ACCOUNT" HEAD --tags || warn "failed to push to $ACCOUNT"
 			else
 				info "creating bare repo on $ACCOUNT"
-				ssh "$ACCOUNT" "mkdir -p ~/.local/var/lib/repo && git init --bare ~/.local/var/lib/repo/$PACKAGE" || warn "failed to create bare repo on $ACCOUNT"
+				ssh "$ACCOUNT" "mkdir -p ~/.local/var/lib/repo && git init --bare -b main ~/.local/var/lib/repo/$PACKAGE" || warn "failed to create bare repo on $ACCOUNT"
 				ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
 				git push "$ACCOUNT" HEAD --tags || warn "failed to push to $ACCOUNT"
 			fi
@@ -871,7 +876,7 @@ command:release() {
 				git push "$ACCOUNT" HEAD --tags || warn "$PACKAGE - failed to push to $ACCOUNT"
 			else
 				info "$PACKAGE - creating bare repo on $ACCOUNT"
-				ssh "$ACCOUNT" "mkdir -p ~/.local/var/lib/repo && git init --bare ~/.local/var/lib/repo/$PACKAGE" || warn "$PACKAGE - failed to create bare repo on $ACCOUNT"
+				ssh "$ACCOUNT" "mkdir -p ~/.local/var/lib/repo && git init --bare -b main ~/.local/var/lib/repo/$PACKAGE" || warn "$PACKAGE - failed to create bare repo on $ACCOUNT"
 				ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
 				git push "$ACCOUNT" HEAD --tags || warn "$PACKAGE - failed to push to $ACCOUNT"
 			fi
@@ -880,7 +885,7 @@ command:release() {
 			scp "$0" "$ACCOUNT:/tmp/rpk" || warn "$PACKAGE - failed to upload rpk to $ACCOUNT"
 
 			info "$PACKAGE - running update on $ACCOUNT"
-			ssh "$ACCOUNT" "/tmp/rpk $PACKAGE update" || warn "$PACKAGE - failed to update on $ACCOUNT"
+			ssh "$ACCOUNT" "PATH=/tmp:\$PATH /tmp/rpk $PACKAGE update" || warn "$PACKAGE - failed to update on $ACCOUNT"
 		done
 	else
 		for REMOTE in $(git remote | grep '@'); do
@@ -890,7 +895,7 @@ command:release() {
 				git push "$REMOTE" HEAD --tags || warn "$PACKAGE - failed to push to $REMOTE"
 			else
 				info "$PACKAGE - creating bare repo on $REMOTE"
-				ssh "$REMOTE" "mkdir -p ~/.local/var/lib/repo && git init --bare ~/.local/var/lib/repo/$PACKAGE" || warn "$PACKAGE - failed to create bare repo on $REMOTE"
+				ssh "$REMOTE" "mkdir -p ~/.local/var/lib/repo && git init --bare -b main ~/.local/var/lib/repo/$PACKAGE" || warn "$PACKAGE - failed to create bare repo on $REMOTE"
 				ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || true
 				git push "$REMOTE" HEAD --tags || warn "$PACKAGE - failed to push to $REMOTE"
 			fi
@@ -899,7 +904,7 @@ command:release() {
 			scp "$0" "$REMOTE:/tmp/rpk" || warn "$PACKAGE - failed to upload rpk to $REMOTE"
 
 			info "$PACKAGE - running update on $REMOTE"
-			ssh "$REMOTE" "/tmp/rpk $PACKAGE update" || warn "$PACKAGE - failed to update on $REMOTE"
+			ssh "$REMOTE" "PATH=/tmp:\$PATH /tmp/rpk $PACKAGE update" || warn "$PACKAGE - failed to update on $REMOTE"
 		done
 	fi
 
@@ -1210,12 +1215,8 @@ command:update() {
 
 	command:stage
 
-	if [ ! -f "$SELF_DATA/$PACKAGE" ]; then
-		info "$PACKAGE - not installed, skipping"
-		return 0
-	fi
-
-	local VERSION=$(command:versions | tail -1)
+	local VERSION
+	VERSION=$(command:versions | tail -1)
 	[ -z "$VERSION" ] && fatal "$PACKAGE - no versions available"
 	command:install "$VERSION"
 }

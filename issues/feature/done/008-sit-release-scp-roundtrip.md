@@ -2,7 +2,7 @@
 id: FEAT-008
 type: feature
 priority: low
-status: open
+status: done
 ---
 
 # SIT coverage for `rpk release` scp + remote `update` round-trip
