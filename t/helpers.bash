@@ -66,6 +66,32 @@ make_package() {
 	echo "$repo"
 }
 
+# setup_bare <name> — create a bare git repository at $HOME/.local/var/lib/repo/<name>
+# (the location rpk's dispatcher expects for package discovery), seed it with one
+# initial commit containing a minimal `.rpk/` skeleton so `command:list` picks
+# up clones of this bare, and echo the bare repo's absolute path.
+setup_bare() {
+	local name=${1:-testpkg}
+	local bare="$HOME/.local/var/lib/repo/$name"
+	mkdir -p "$(dirname "$bare")"
+	git init --bare -q -b main "$bare"
+
+	local seed="$SANDBOX/seed-$name"
+	git clone -q "$bare" "$seed" 2>/dev/null
+	(
+		cd "$seed"
+		echo "hello" > README.md
+		mkdir -p .rpk/depends
+		echo "user" > .rpk/type
+		echo "0.0.1" > .rpk/versions
+		git add .
+		git commit -q -m "initial"
+		git push -q origin main
+	) >/dev/null
+	rm -rf "$seed"
+	echo "$bare"
+}
+
 # make_buildable_package <name> — like make_package, plus scaffolds a minimal
 # autoconf-style build (configure + Makefile) that installs a `hello-<name>`
 # script into $(PREFIX)/bin. Suitable for lifecycle tests that exercise the

@@ -11,22 +11,22 @@ VERSION='1.0.0'
 SELF=$(basename "$0")
 
 fatal() {
-	echo -e "$SELF - fatal: \033[31;m$@\033[0m" >&2
+	echo -e "$SELF - fatal: \033[31;m$*\033[0m" >&2
 	exit 1
 }
 
 debug() {
-	[ -n "$SELF_DEBUG" ] && echo -e "$SELF - debug: \033[90;m$@\033[0m" >&2
+	[ -n "$SELF_DEBUG" ] && echo -e "$SELF - debug: \033[90;m$*\033[0m" >&2
 }
 
 info() {
-	if [ -n "$SELF_VERBOSE" ] || [ ! -n "$SELF_QUIET" ]; then
-		echo -e "$SELF - info:  \033[32;m$@\033[0m" >&2
+	if [ -n "$SELF_VERBOSE" ] || [ -z "$SELF_QUIET" ]; then
+		echo -e "$SELF - info:  \033[32;m$*\033[0m" >&2
 	fi
 }
 
 warn() {
-	echo -e "$SELF - warn:  \033[33;1;m$@\033[0m" >&2
+	echo -e "$SELF - warn:  \033[33;1;m$*\033[0m" >&2
 }
 
 # checks if a certain function exists: eg. has command update
@@ -69,6 +69,7 @@ while getopts "qdfv" flag; do
 		d) SELF_DEBUG=1 ;;
 		f) SELF_FORCE=1 ;;
 		v) SELF_VERBOSE=1 ;;
+		*) ;;
 	esac
 done
 shift $((OPTIND-1))
@@ -80,7 +81,6 @@ shift $((OPTIND-1))
 : ${EUID:=$(id -u)}
 
 SELF_CONFIG=${XDG_CONFIG_HOME}/${SELF}
-SELF_CACHE=${XDG_CACHE_HOME}/${SELF}
 SELF_DATA=${XDG_DATA_HOME}/${SELF}
 SELF_SOURCES=${HOME}/.local/src
 SELF_REPO=${XDG_DATA_HOME}/repo
@@ -138,6 +138,7 @@ FIELD='[0-9A-Za-z-]+'
 
 SEMVER_REGEX="^[vV]?($NAT)\\.($NAT)\\.($NAT)(\\-(${IDENT})(\\.(${IDENT}))*)?(\\+${FIELD}(\\.${FIELD})*)?$"
 
+# shellcheck disable=SC2120  # called with and without args via dispatch
 command:help() {
 	if [[ $# != 0 ]]; then
 		if ! has command $1; then
@@ -283,17 +284,16 @@ command:bundle() {
 
 #------------------------------------------------------------------------------
 command:action() {
-	echo -e "$SELF - action: \033[90;m$@\033[0m" >&2
+	echo -e "$SELF - action: \033[90;m$*\033[0m" >&2
 	"$@"
 	return $?
 }
 
 #------------------------------------------------------------------------------
 command:daemon() {
-	echo -e "$SELF - action: $@ &\033[0m" >&2
+	echo -e "$SELF - action: $* &\033[0m" >&2
 	"$@" &
 	echo $!
-	return $?
 }
 
 #------------------------------------------------------------------------------
@@ -304,19 +304,19 @@ command:root() {
 #------------------------------------------------------------------------------
 command:info() {
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
-	info "${PACKAGE} - $@"
+	info "${PACKAGE} - $*"
 }
 
 #------------------------------------------------------------------------------
 command:warn() {
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
-	warn "${PACKAGE} - $@"
+	warn "${PACKAGE} - $*"
 }
 
 #------------------------------------------------------------------------------
 command:fatal() {
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
-	fatal "${PACKAGE} - $@"
+	fatal "${PACKAGE} - $*"
 }
 
 #------------------------------------------------------------------------------
@@ -354,7 +354,7 @@ command:version() {
 #------------------------------------------------------------------------------
 command:versions() {
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	if [ ! -z "$WORKTREE" -a -d "$WORKTREE" ]; then
+	if [ -n "$WORKTREE" ] && [ -d "$WORKTREE" ]; then
 		pushd $WORKTREE > /dev/null
 		if [ -x .$SELF/versions ]; then
 			.$SELF/versions | sort -u -V
@@ -369,10 +369,10 @@ command:versions() {
 command:commit() {
 	local VERSION=$1
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
-	if [ ! -z "$WORKTREE" -a -d "$WORKTREE" ]; then
+	if [ -n "$WORKTREE" ] && [ -d "$WORKTREE" ]; then
 		pushd $WORKTREE > /dev/null
-		if [ -f .$SELF/versions -a ! -x .$SELF/versions ]; then
-			grep "^$VERSION[[:blank:]]" .$SELF/versions | cut -s -f 2 | head -1
+		if [ -f .$SELF/versions ] && [ ! -x .$SELF/versions ]; then
+			grep "^${VERSION}[[:blank:]]" .$SELF/versions | cut -s -f 2 | head -1
 		fi
 		popd > /dev/null
 	fi
@@ -461,7 +461,7 @@ command:changelog() {
 		# GNU ChangeLog header format
 		local HEADER="$(date '+%Y-%m-%d')  $(git config user.name)  <$(git config user.email)>
 
-  * ${VERSION}:"
+  * ${CURR}:"
 
 		# New section content
 		local CONTENT=$(printf '%s\n\n' "$ENTRIES" | sed 's/^/     /')
@@ -639,21 +639,22 @@ command:type() {
 
 #------------------------------------------------------------------------------
 command:list() {
+	# shellcheck disable=SC2045,SC2046  # package names are validated
 	{ for REPO in $(ls -1 $(command:source) 2>/dev/null); do
 		if [[ $REPO =~ ^"$SELF-" ]]; then
 			echo "$REPO" | sed "s/$SELF-//g"
 		elif [ -d "$SELF_SOURCES/$REPO/.$SELF" ]; then
 			echo "$REPO"
 		fi
-	done 
+	done
 
 	for REPO in $(rpk:bare); do
 		if [[ $REPO =~ ^"$SELF-" ]]; then
-			if [[ ! -d $SELF_SOURCES/$REPO ]]; then
-				echo "$REPO" | sed "s/$SELF-//g"
-			fi
+			[[ -d $SELF_SOURCES/$REPO ]] || echo "$REPO" | sed "s/$SELF-//g"
+		else
+			[[ -d $SELF_SOURCES/$REPO ]] || echo "$REPO"
 		fi
-	done }
+	done } | sort -u
 }
 
 #------------------------------------------------------------------------------
@@ -958,6 +959,7 @@ command:depends() {
 			test "$EUID" -eq 0 || fatal "system packages dependencies have to be run as root user"
 		fi
 		pushd "$WORKTREE" > /dev/null
+		# shellcheck disable=SC2045  # dependency script names are controlled
 		for SCRIPT in $(ls -1 "$WORKTREE/.$SELF/depends"); do
 			info "$PACKAGE - installing dependency $SCRIPT"
 			"$WORKTREE/.$SELF/depends/$SCRIPT"
@@ -971,6 +973,7 @@ command:bundles() {
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
 	test -z "$WORKTREE" && fatal "bundles - package $PACKAGE has no worktree - please stage it"
 	pushd "$WORKTREE" > /dev/null
+	# shellcheck disable=SC2010  # bundle names are validated
 	ls -1 "$(command:bundle "$(command:type)")" | grep "^$PACKAGE-"
 	popd > /dev/null
 }
@@ -983,9 +986,9 @@ command:cleanup() {
 	for PACKAGE_VERSION in $(command:bundles); do
 		if [[ ! ${PACKAGE_VERSION} =~ ${CURRENT}$ ]]; then
 			info "removing old version ${PACKAGE_VERSION}"
-			rm -rf "$(command:bundle home)/${PACKAGE_VERSION}"
+			rm -rf "$(command:bundle home)/${PACKAGE_VERSION:?}"
 			if [ "$EUID" -eq 0 ]; then
-				rm -rf "$(command:bundle system)/${PACKAGE_VERSION}"
+				rm -rf "$(command:bundle system)/${PACKAGE_VERSION:?}"
 			fi
 		fi
 	done
@@ -1210,22 +1213,22 @@ if has command $1; then
 		fi
 	fi
 	
-	debug "executing command:$1 ${@:2}"
+	debug "executing command:$1 ${*:2}"
 	command:$1 "${@:2}" # array slice skipping first element
 	exit $?
 elif [ -z "$PACKAGE" ]; then
-	fatal "unknown command: ${@}"
+	fatal "unknown command: $*"
 elif command:list | grep -q ^$PACKAGE$; then
 	COMMAND=$1
 	if [ -z "$COMMAND" ]; then
 		fatal "$PACKAGE - please specify a command"
 	elif [ -x $WORKTREE/command/$COMMAND ]; then
 		pushd $WORKTREE > /dev/null
-                ./command/$COMMAND ${@:3}
+                ./command/$COMMAND "${@:3}"
 		popd > /dev/null
 	else
-		fatal "$PACKAGE - unknown package command ${@:2}"
+		fatal "$PACKAGE - unknown package command ${*:2}"
 	fi
 else
-	fatal "unknown package: ${@}"
+	fatal "unknown package: $*"
 fi

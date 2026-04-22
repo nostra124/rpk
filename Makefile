@@ -55,14 +55,8 @@ test:
 	fi
 
 lint:
-	@echo "Linting scripts..."
-	@for script in $(SCRIPTS); do \
-		if command -v shellcheck >/dev/null 2>&1; then \
-			shellcheck "$$script" || true; \
-		else \
-			echo "shellcheck not installed, skipping $$script"; \
-		fi \
-	done
+	@command -v shellcheck >/dev/null 2>&1 || { echo "shellcheck not installed — install with 'rpk rpk depends' or your package manager"; exit 1; }
+	@shellcheck --severity=warning $(SCRIPTS)
 
 install: install-bin install-etc install-share install-man install-doc install-skills
 	@echo "Installation complete."

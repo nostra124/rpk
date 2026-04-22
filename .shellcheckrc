@@ -1,0 +1,18 @@
+# Project-wide shellcheck exclusions.
+#
+# The codes listed here are skipped for every file in this repository. Each
+# has a concrete reason rooted in rpk's coding conventions; audit before
+# re-enabling:
+#
+# SC2164 — pushd/cd without || exit. rpk's pushds are defensive in
+#          short-lived functions; a failing pushd surfaces via the
+#          subsequent command. Adopting `set -e` would change that.
+# SC2155 — declare-and-assign (`local X=$(cmd)`) masking return values.
+#          Used throughout the codebase; switching to split declarations
+#          would be mostly-noise.
+# SC2029 — unescaped variables in ssh command strings. rpk intentionally
+#          wants client-side expansion of `$PACKAGE` when sending package
+#          names to remote shells (e.g. `ssh "$ACCOUNT" "... $PACKAGE ..."`).
+disable=SC2164
+disable=SC2155
+disable=SC2029
