@@ -103,10 +103,12 @@ cat <<DONE
 
 ✓ rpk installed to $PREFIX
 
+Agent skills (Claude Code / opencode / raven) were activated automatically
+for any detected user config dir. To re-activate manually later:
+    cd $SOURCE && make install-skills-user INSTALL_PREFIX=$PREFIX
+
 Next steps:
   - Ensure $PREFIX/bin is on your PATH (add 'export PATH=$PREFIX/bin:\$PATH' to
     your shell rc if needed).
   - Read: 'man rpk' or $PREFIX/share/doc/rpk/PACKAGING.md
-  - Activate agent skills (Claude Code / opencode / raven):
-      cd $SOURCE && make install-skills-user INSTALL_PREFIX=$PREFIX
 DONE

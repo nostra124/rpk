@@ -1,0 +1,27 @@
+#!/bin/bash
+#
+# rpk post-install hook. Called by command:install after `stow` has
+# linked the bundle into the target tree. Activates the rpk-author
+# agent skill for any user-side config dir that already exists, so
+# installing rpk is enough to surface the skill in Claude Code,
+# opencode, and Raven. Never creates a dotfile tree on the user's
+# behalf — absent agent configs are simply skipped.
+
+set -e
+
+TARGET=$(rpk target "$(rpk type)")
+SHARE="$TARGET/share"
+
+activate() {
+	local src=$1 dst=$2
+	local parent
+	parent=$(dirname -- "$dst")
+	if [ -e "$src" ] && [ -d "$parent" ]; then
+		ln -snf -- "$src" "$dst"
+		echo "rpk - activated agent skill: $dst"
+	fi
+}
+
+activate "$SHARE/claude/skills/rpk-author"               "$HOME/.claude/skills/rpk-author"
+activate "$SHARE/raven/skills/rpk-author"                "$HOME/.raven/workspace/skills/rpk-author"
+activate "$SHARE/opencode/commands/rpk-author.md"        "$HOME/.config/opencode/commands/rpk-author.md"
