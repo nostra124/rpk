@@ -2,7 +2,7 @@
 id: BUG-002
 type: bug
 priority: medium
-status: open
+status: done
 ---
 
 # BUG-002: `make clean` wipes every package's share dir, not just rpk's

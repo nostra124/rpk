@@ -134,5 +134,11 @@ install-skills:
 	@echo "  opencode:     ln -sf $(INSTALL_SHARE)/opencode/commands/rpk-author.md \$$HOME/.config/opencode/commands/rpk-author.md"
 
 clean:
-	@echo "Cleaning up..."
-	@rm -rf $(INSTALL_PREFIX)/bin/rpk $(INSTALL_PREFIX)/etc/scripts $(INSTALL_PREFIX)/share/*
+	@echo "Removing rpk-installed artefacts (targeted — won't touch other packages)..."
+	@rm -f  -- "$(DESTDIR)$(INSTALL_BIN)/rpk"
+	@rm -f  -- "$(DESTDIR)$(INSTALL_ETC)/bash_completion.d/rpk"
+	@rm -f  -- "$(DESTDIR)$(INSTALL_MAN)/man1/rpk.1"
+	@rm -rf -- "$(DESTDIR)$(INSTALL_DOC)"
+	@rm -rf -- "$(DESTDIR)$(INSTALL_SHARE)/claude/skills/rpk-author"
+	@rm -rf -- "$(DESTDIR)$(INSTALL_SHARE)/raven/skills/rpk-author"
+	@rm -f  -- "$(DESTDIR)$(INSTALL_SHARE)/opencode/commands/rpk-author.md"
