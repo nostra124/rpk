@@ -2,7 +2,7 @@
 id: BUG-003
 type: bug
 priority: low
-status: open
+status: done
 ---
 
 # BUG-003: `VERSION='1.0.0'` at the top of `bin/rpk` is dead/stale

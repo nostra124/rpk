@@ -7,7 +7,6 @@
 # This should always be the first line of code to facilitate debugging
 [ -n "$SELF_DEBUG" ] && set -vx
 
-VERSION='1.0.0'
 SELF=$(basename "$0")
 
 fatal() {
