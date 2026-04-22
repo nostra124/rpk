@@ -10,6 +10,18 @@ load helpers
 	[ "$status" -eq 0 ]
 }
 
+@test "shellcheck passes on .rpk/* scripts (FEAT-003)" {
+	if ! command -v shellcheck >/dev/null 2>&1; then
+		skip "shellcheck not installed"
+	fi
+	local repo_root
+	repo_root="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+	run shellcheck --severity=warning \
+		"$repo_root/.rpk/package" \
+		"$repo_root"/.rpk/depends/*
+	[ "$status" -eq 0 ]
+}
+
 @test "rpk script is valid bash syntax" {
 	run bash -n "$RPK_BIN"
 	[ "$status" -eq 0 ]

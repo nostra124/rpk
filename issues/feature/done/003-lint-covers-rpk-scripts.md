@@ -2,7 +2,7 @@
 id: FEAT-003
 type: feature
 priority: low
-status: open
+status: done
 ---
 
 # Extend `make lint` to cover `.rpk/*` scripts

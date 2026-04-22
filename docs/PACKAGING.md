@@ -105,7 +105,7 @@ test -z "$COMMIT" && die "version $VERSION has no commit hash"
 TARGET=$(rpk bundle "$(rpk type)")/$PACKAGE-$VERSION
 
 BRANCH=$(git branch --show-current)
-trap "git checkout $BRANCH --force" EXIT
+trap 'git checkout "$BRANCH" --force' EXIT
 
 git config advice.detachedHead false
 git checkout "$COMMIT" || die "failed to checkout $COMMIT"

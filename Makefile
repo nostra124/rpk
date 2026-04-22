@@ -12,6 +12,10 @@ SKILLS_DIR := $(CURDIR)/skills
 TEST_DIR := $(CURDIR)/t
 
 SCRIPTS := $(wildcard $(BIN_DIR)/*)
+RPK_SCRIPTS := $(CURDIR)/.rpk/package \
+               $(wildcard $(CURDIR)/.rpk/install) \
+               $(wildcard $(CURDIR)/.rpk/delete) \
+               $(wildcard $(CURDIR)/.rpk/depends/*)
 MAN_PAGES := $(wildcard $(MAN_DIR)/*.1)
 DOC_FILES := $(wildcard $(DOC_DIR)/*.md)
 TEST_FILES := $(wildcard $(TEST_DIR)/*.bats)
@@ -56,7 +60,7 @@ test:
 
 lint:
 	@command -v shellcheck >/dev/null 2>&1 || { echo "shellcheck not installed — install with 'rpk rpk depends' or your package manager"; exit 1; }
-	@shellcheck --severity=warning $(SCRIPTS)
+	@shellcheck --severity=warning $(SCRIPTS) $(RPK_SCRIPTS)
 
 install: install-bin install-etc install-share install-man install-doc install-skills
 	@echo "Installation complete."
