@@ -1,3 +1,6 @@
 *.swp
 config.mk
 .claude
+# SIT test-only keypair, generated on demand by tests/sit/helpers.bash.
+tests/sit/fixtures/upstream-id_ed25519
+tests/sit/fixtures/upstream-id_ed25519.pub

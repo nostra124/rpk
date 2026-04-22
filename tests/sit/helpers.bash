@@ -7,9 +7,21 @@
 : "${SIT_REPO_ROOT:=$(cd "${BATS_TEST_DIRNAME}/../../.." && pwd)}"
 : "${SIT_DIR:=${SIT_REPO_ROOT}/tests/sit}"
 
+# sit_ensure_fixture_keypair — generate tests/sit/fixtures/upstream-id_ed25519
+# if it doesn't already exist. The keypair is intentionally NOT committed
+# (.gitignored) so the public key isn't baked into the repo; it's rebuilt on
+# demand each time the SIT fixtures are needed.
+sit_ensure_fixture_keypair() {
+	local key="$SIT_DIR/fixtures/upstream-id_ed25519"
+	[ -f "$key" ] && [ -f "$key.pub" ] && return 0
+	mkdir -p "$SIT_DIR/fixtures"
+	ssh-keygen -q -N "" -t ed25519 -C "rpk-sit-fixture@localhost" -f "$key"
+}
+
 # sit_build_image <distro> — idempotently build the rpk-sit:<distro> image
 # from the Dockerfile at tests/sit/podman/Dockerfile.<distro>. Uses the
 # repo root as context so the image has the full source tree available.
+# For ssh-using variants, the fixture keypair is generated on demand.
 sit_build_image() {
 	local distro=$1
 	local tag="rpk-sit:$distro"
@@ -18,6 +30,9 @@ sit_build_image() {
 		echo "sit_build_image: no Dockerfile for '$distro' at $dockerfile" >&2
 		return 1
 	}
+	case "$distro" in
+		ssh|ssh-upstream|ssh-receiver) sit_ensure_fixture_keypair ;;
+	esac
 	podman build -q -t "$tag" -f "$dockerfile" "$SIT_REPO_ROOT" >/dev/null
 }
 
