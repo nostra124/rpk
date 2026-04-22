@@ -77,6 +77,19 @@ teardown() { sandbox_teardown; }
 	[ "$((after_count - before_count))" -eq 2 ]
 }
 
+@test "rpk's own .rpk/versions has a SHA for every entry (BUG-001 regression)" {
+	local repo_root
+	repo_root="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+	# Every non-blank line must have a tab and a 40-char hex SHA in field 2.
+	run awk -F '\t' '
+		/^[[:space:]]*$/ { next }
+		/^[[:space:]]*#/ { next }
+		NF < 2 || $2 !~ /^[0-9a-f]{40}$/ { print NR": "$0; bad=1 }
+		END { exit bad }
+	' "$repo_root/.rpk/versions"
+	[ "$status" -eq 0 ]
+}
+
 @test "versions output is sorted by semver" {
 	make_package "mypkg" >/dev/null
 	rpk mypkg patch     # 0.0.2

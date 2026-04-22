@@ -2,7 +2,7 @@
 id: BUG-001
 type: bug
 priority: medium
-status: open
+status: done
 ---
 
 # BUG-001: `.rpk/versions` entries without commit SHAs are unusable
