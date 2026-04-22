@@ -1,0 +1,19 @@
+FROM fedora:41
+
+RUN dnf install -y \
+	bash git make rsync stow bats coreutils grep sed \
+	&& dnf clean all
+
+WORKDIR /src
+COPY bin/ bin/
+COPY etc/ etc/
+COPY man/ man/
+COPY docs/ docs/
+COPY skills/ skills/
+COPY Makefile configure ./
+
+RUN ./configure --prefix=/usr/local && make install
+
+RUN rpk help 2>&1 | grep -q usage
+
+CMD ["rpk", "help"]

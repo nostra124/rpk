@@ -1,13 +1,38 @@
 #!/bin/bash
+# Auto-templated; customise BIN/PKG if they differ per platform.
 
-if [ -x /opt/local/bin/port ]; then
-	which bats > /dev/null || rpk action sudo port install bats-core
-elif [ -x /usr/bin/apt-get ]; then
-	which bats > /dev/null || rpk action sudo apt-get --yes install bats
-elif [ -x /usr/local/bin/brew ] || [ -x /opt/homebrew/bin/brew ]; then
-	which bats > /dev/null || rpk action brew install bats-core
-elif [ -x /usr/bin/dnf ]; then
-	which bats > /dev/null || rpk action sudo dnf install -y bats
-elif [ -x /usr/bin/pacman ]; then
-	which bats > /dev/null || rpk action sudo pacman -S --noconfirm bats
+BIN="bats"
+if command -v "$BIN" > /dev/null 2>&1; then
+	exit 0
 fi
+
+case "$(rpk platform)" in
+	alpine)
+		rpk action sudo apk add bats
+		;;
+	debian|ubuntu|pureos|linuxmint)
+		rpk action sudo apt-get --yes install bats
+		;;
+	fedora|rhel|centos|rocky|almalinux)
+		rpk action sudo dnf install -y bats
+		;;
+	arch|manjaro|endeavouros)
+		rpk action sudo pacman -S --noconfirm bats
+		;;
+	opensuse|opensuse-leap|opensuse-tumbleweed|sles)
+		rpk action sudo zypper install -y bats
+		;;
+	freebsd)
+		rpk action sudo pkg install -y bats
+		;;
+	macos-ports)
+		rpk action sudo port install bats-core
+		;;
+	macos-brew)
+		rpk action brew install bats-core
+		;;
+	*)
+		echo "no packager for platform '$(rpk platform)' — install $BIN manually" >&2
+		exit 1
+		;;
+esac

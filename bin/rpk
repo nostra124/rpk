@@ -89,7 +89,7 @@ mkdir -p "$SELF_SOURCES"
 mkdir -p "$SELF_REPO"
 
 [ -n "$SELF_VERBOSE" ] && set -vx
-STOW=$(which stow)
+STOW=$(command -v stow)
 [ -z "$STOW" ] && [ -x /opt/local/bin/stow ] && STOW=/opt/local/bin/stow
 
 rpk:bare() {
@@ -476,16 +476,30 @@ command:changelog() {
 command:platform() {
 	case $(uname -s) in
 		Linux*)
-			if test -f /etc/os-release; then
-				cat /etc/os-release | grep "^ID=" | sed "s/^ID=//g"
-			elif test -e /etc/synoinfo.conf; then
+			if test -e /etc/synoinfo.conf; then
 				echo "synology"
+			elif test -f /etc/os-release; then
+				local id
+				id=$(awk -F= '/^ID=/ { gsub(/"/, "", $2); print $2; exit }' /etc/os-release)
+				echo "${id:-linux}"
 			else
 				echo "linux"
 			fi
 			;;
 		Darwin*)
-			echo "macos"
+			if [ -x /opt/local/bin/port ]; then
+				echo "macos-ports"
+			elif [ -x /usr/local/bin/brew ] || [ -x /opt/homebrew/bin/brew ]; then
+				echo "macos-brew"
+			else
+				echo "macos"
+			fi
+			;;
+		FreeBSD*)
+			echo "freebsd"
+			;;
+		OpenBSD*)
+			echo "openbsd"
 			;;
 		*)
 			echo "unknown"
@@ -495,25 +509,60 @@ command:platform() {
 
 #------------------------------------------------------------------------------
 command:upgrade() {
-	test $EUID -eq 0 -o -f /etc/sudoers.d/$USER || fatal "the account has no admin rights"
-	case $(command:platform) in
+	test "$EUID" -eq 0 || test -f "/etc/sudoers.d/$USER" || fatal "the account has no admin rights"
+	local platform
+	platform=$(command:platform)
+	case "$platform" in
 		alpine)
+			command:action sudo apk update
+			command -v stow > /dev/null || command:action sudo apk add stow
+			command:action sudo apk upgrade
 			;;
-		debian|ubuntu|pureos)
+		debian|ubuntu|pureos|linuxmint)
 			command:action sudo apt-get update
-			which apt-show-versions > /dev/null || command:action apt-get install apt-show-versions --yes
-			which stow > /dev/null || command:action apt-get install stow --yes
-			command:action apt-get upgrade --yes
+			command -v apt-show-versions > /dev/null || command:action sudo apt-get install --yes apt-show-versions
+			command -v stow > /dev/null || command:action sudo apt-get install --yes stow
+			command:action sudo apt-get upgrade --yes
 			if [ -f /var/run/reboot-required ]; then
 				info "reboot required - restarting system"
 				sudo reboot
 			fi
-			command:action apt-get autoremove --yes --quiet
+			command:action sudo apt-get autoremove --yes --quiet
 			;;
-		macos)
-			which stow || command:action port install stow
+		fedora|rhel|centos|rocky|almalinux)
+			command -v stow > /dev/null || command:action sudo dnf install -y stow
+			command:action sudo dnf upgrade -y
+			;;
+		arch|manjaro|endeavouros)
+			command -v stow > /dev/null || command:action sudo pacman -S --noconfirm stow
+			command:action sudo pacman -Syu --noconfirm
+			;;
+		opensuse|opensuse-leap|opensuse-tumbleweed|sles)
+			command -v stow > /dev/null || command:action sudo zypper install -y stow
+			command:action sudo zypper update -y
+			;;
+		gentoo)
+			command -v stow > /dev/null || command:action sudo emerge -q app-misc/stow
+			command:action sudo emerge --sync
+			command:action sudo emerge -uDN @world
+			;;
+		freebsd)
+			command -v stow > /dev/null || command:action sudo pkg install -y stow
+			command:action sudo pkg update
+			command:action sudo pkg upgrade -y
+			;;
+		macos-ports)
+			command -v stow > /dev/null || command:action sudo port install stow
 			command:action sudo port selfupdate
 			command:action sudo port upgrade outdated
+			;;
+		macos-brew)
+			command -v stow > /dev/null || command:action brew install stow
+			command:action brew update
+			command:action brew upgrade
+			;;
+		*)
+			warn "upgrade: no handler for platform '$platform'"
 			;;
 	esac
 }

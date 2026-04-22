@@ -142,24 +142,39 @@ Optional. Runs during `rpk <pkg> delete` after stow unlinks the bundle.
 A directory of executable scripts, one per prerequisite. `rpk <pkg>
 depends` runs each in turn.
 
-Convention: detect the platform's package manager and install the missing
-binary. Stop silently if the binary is already present.
+Convention: short-circuit if the binary is already present; otherwise
+dispatch on `rpk platform` and invoke the platform's native package
+manager. rpk ships this canonical template for its own depends
+scripts:
 
 ```bash
 #!/bin/bash
 
-if [ -x /opt/local/bin/port ]; then
-	which make > /dev/null || rpk action sudo port install make
-elif [ -x /usr/bin/apt-get ]; then
-	which make > /dev/null || rpk action sudo apt-get --yes install make
-elif [ -x /usr/local/bin/brew ] || [ -x /opt/homebrew/bin/brew ]; then
-	which make > /dev/null || rpk action brew install make
-elif [ -x /usr/bin/dnf ]; then
-	which make > /dev/null || rpk action sudo dnf install -y make
-elif [ -x /usr/bin/pacman ]; then
-	which make > /dev/null || rpk action sudo pacman -S --noconfirm make
+BIN="make"
+if command -v "$BIN" > /dev/null 2>&1; then
+	exit 0
 fi
+
+case "$(rpk platform)" in
+	alpine)                                        rpk action sudo apk add make ;;
+	debian|ubuntu|pureos|linuxmint)                rpk action sudo apt-get --yes install make ;;
+	fedora|rhel|centos|rocky|almalinux)            rpk action sudo dnf install -y make ;;
+	arch|manjaro|endeavouros)                      rpk action sudo pacman -S --noconfirm make ;;
+	opensuse|opensuse-leap|opensuse-tumbleweed|sles) rpk action sudo zypper install -y make ;;
+	freebsd)                                       rpk action sudo pkg install -y make ;;
+	macos-ports)                                   rpk action sudo port install make ;;
+	macos-brew)                                    rpk action brew install make ;;
+	*)                                             echo "no packager for platform '$(rpk platform)' — install $BIN manually" >&2; exit 1 ;;
+esac
 ```
+
+`rpk platform` returns a stable identifier per distro family (alpine,
+arch, debian, fedora, freebsd, gentoo, linuxmint, macos-brew,
+macos-ports, manjaro, opensuse, opensuse-leap, opensuse-tumbleweed,
+pureos, rhel, rocky, sles, synology, ubuntu). When the distro package
+name differs from the binary name, substitute per-arm (see rpk's own
+`.rpk/depends/shellcheck` for an example — `ShellCheck` on dnf/zypper,
+lowercase elsewhere).
 
 Name the script after the binary it provides (`depends/make`,
 `depends/git`, `depends/openssl`). Keep them minimal — one prereq each.
