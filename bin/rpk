@@ -336,14 +336,14 @@ command:identity() {
 command:version() {
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
 	if [ -n "$WORKTREE" ] && [ -d "$WORKTREE" ]; then
-		pushd $WORKTREE > /dev/null
+		pushd $WORKTREE > /dev/null || exit 1
 		test -z "$PACKAGE" && PACKAGE=$(command:identity)
 		if [ -x .$SELF/version ]; then
 			.$SELF/version
 		elif [ -f $SELF_DATA/$PACKAGE ]; then
 			cat $SELF_DATA/$PACKAGE
 		fi
-		popd > /dev/null
+		popd > /dev/null || true
 		return 0
 	else
 		return 1
@@ -354,13 +354,13 @@ command:version() {
 command:versions() {
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
 	if [ -n "$WORKTREE" ] && [ -d "$WORKTREE" ]; then
-		pushd $WORKTREE > /dev/null
+		pushd $WORKTREE > /dev/null || exit 1
 		if [ -x .$SELF/versions ]; then
 			.$SELF/versions | sort -u -V
 		elif [ -f .$SELF/versions ]; then
 			cut -f 1 .$SELF/versions | sort -u -V
 		fi
-		popd > /dev/null
+		popd > /dev/null || true
 	fi
 }
 
@@ -369,18 +369,18 @@ command:commit() {
 	local VERSION=$1
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE"
 	if [ -n "$WORKTREE" ] && [ -d "$WORKTREE" ]; then
-		pushd $WORKTREE > /dev/null
+		pushd $WORKTREE > /dev/null || exit 1
 		if [ -f .$SELF/versions ] && [ ! -x .$SELF/versions ]; then
 			grep "^${VERSION}[[:blank:]]" .$SELF/versions | cut -s -f 2 | head -1
 		fi
-		popd > /dev/null
+		popd > /dev/null || true
 	fi
 }
 
 #-----------------------------------------------------------------------------
 command:major() {
 	local VERSION=$(command:versions | tail -1)
-	pushd "$WORKTREE" > /dev/null
+	pushd "$WORKTREE" > /dev/null || exit 1
 	if [[ "$VERSION" =~ $SEMVER_REGEX ]]; then
 		local MAJOR=${BASH_REMATCH[1]}
 		local MINOR=${BASH_REMATCH[2]}
@@ -391,15 +391,15 @@ command:major() {
 	fi
 
 	echo -e "$NEW\t$(git rev-parse HEAD)" | tee -a .$SELF/versions > /dev/null
-	git add .$SELF/versions && git commit -m "updated version to $NEW" .$SELF/versions || { popd > /dev/null; fatal "failed to commit version"; }
+	git add .$SELF/versions && git commit -m "updated version to $NEW" .$SELF/versions || { popd > /dev/null || true; fatal "failed to commit version"; }
 	push:branches local || true
-	popd > /dev/null
+	popd > /dev/null || true
 }
 
 #-----------------------------------------------------------------------------
 command:minor() {
 	local VERSION=$(command:versions | tail -1)
-	pushd "$WORKTREE" > /dev/null
+	pushd "$WORKTREE" > /dev/null || exit 1
 	if [[ "$VERSION" =~ $SEMVER_REGEX ]]; then
 		local MAJOR=${BASH_REMATCH[1]}
 		local MINOR=${BASH_REMATCH[2]}
@@ -410,15 +410,15 @@ command:minor() {
 	fi
 		
 	echo -e "$NEW\t$(git rev-parse HEAD)" | tee -a .$SELF/versions > /dev/null
-	git add .$SELF/versions && git commit -m "updated version to $NEW" .$SELF/versions || { popd > /dev/null; fatal "failed to commit version"; }
+	git add .$SELF/versions && git commit -m "updated version to $NEW" .$SELF/versions || { popd > /dev/null || true; fatal "failed to commit version"; }
 	push:branches local || true
-	popd > /dev/null
+	popd > /dev/null || true
 }
 
 #-----------------------------------------------------------------------------
 command:patch() {
 	local VERSION=$(command:versions | tail -1)
-	pushd "$WORKTREE" > /dev/null
+	pushd "$WORKTREE" > /dev/null || exit 1
 	if [[ "$VERSION" =~ $SEMVER_REGEX ]]; then
 		local MAJOR=${BASH_REMATCH[1]}
 		local MINOR=${BASH_REMATCH[2]}
@@ -429,9 +429,9 @@ command:patch() {
 	fi
 
 	echo -e "$NEW\t$(git rev-parse HEAD)" | tee -a .$SELF/versions > /dev/null
-	git add .$SELF/versions && git commit -m "updated version to $NEW" .$SELF/versions || { popd > /dev/null; fatal "failed to commit version"; }
+	git add .$SELF/versions && git commit -m "updated version to $NEW" .$SELF/versions || { popd > /dev/null || true; fatal "failed to commit version"; }
 	push:branches local || true
-	popd > /dev/null
+	popd > /dev/null || true
 }
 
 #------------------------------------------------------------------------------
@@ -450,7 +450,7 @@ command:changelog() {
 	local PREV_COMMIT=$(command:commit $PREV)
 	local CURR_COMMIT=$(command:commit $CURR)
 
-	pushd $WORKTREE > /dev/null
+	pushd $WORKTREE > /dev/null || exit 1
 	if [ ! -z "$CURR_COMMIT" ]; then
 		if [ -z "$PREV_COMMIT" ]; then 
 			local ENTRIES=$(git log -n 1000 $CURR_COMMIT --no-merges --pretty=format:"%s" --abbrev-commit)
@@ -469,7 +469,7 @@ command:changelog() {
 	else
 		fatal "version $CURR has no commit hash"
 	fi
-	popd > /dev/null
+	popd > /dev/null || true
 }
 
 #------------------------------------------------------------------------------
@@ -521,14 +521,14 @@ command:upgrade() {
 #------------------------------------------------------------------------------
 command:init() {
 	local REPO_NAME=$(command:identity)
-	pushd "$WORKTREE" > /dev/null
+	pushd "$WORKTREE" > /dev/null || exit 1
 	mkdir -p "$SELF_REPO"
 	if git remote | grep -q "^local$"; then
 		info "local remote already exists"
 	else
 		info "setting up local remote to local bare repo"
 		if ! git remote add local "$SELF_REPO/$REPO_NAME"; then
-			popd > /dev/null
+			popd > /dev/null || true
 			fatal "failed to add local remote"
 		fi
 	fi
@@ -619,13 +619,13 @@ EOF
 		info "no changes to commit"
 	elif [ -f AGENTS.md ]; then
 		git commit -m "initialized .$SELF + AGENTS.md" .$SELF AGENTS.md \
-			|| { popd > /dev/null; fatal "failed to commit .$SELF files"; }
+			|| { popd > /dev/null || true; fatal "failed to commit .$SELF files"; }
 	else
 		git commit -m "initialized .$SELF" .$SELF \
-			|| { popd > /dev/null; fatal "failed to commit .$SELF files"; }
+			|| { popd > /dev/null || true; fatal "failed to commit .$SELF files"; }
 	fi
 	push:branches local || true
-	popd > /dev/null
+	popd > /dev/null || true
 }
 
 #------------------------------------------------------------------------------
@@ -682,9 +682,9 @@ command:show() {
 command:accounts() {
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
 	test -z "$WORKTREE" && fatal "accounts - package $PACKAGE has no worktree - please stage it"
-	pushd "$WORKTREE" > /dev/null
+	pushd "$WORKTREE" > /dev/null || exit 1
 	git remote | grep @
-	popd > /dev/null
+	popd > /dev/null || true
 }
 
 #------------------------------------------------------------------------------
@@ -710,18 +710,18 @@ command:stage() {
 		if ! git clone "$BARE_REPO" "$WORKTREE" 2>&1; then
 			fatal "failed to clone repository $BARE_REPO"
 		fi
-		pushd "$WORKTREE" > /dev/null
+		pushd "$WORKTREE" > /dev/null || exit 1
 		git remote remove local 2>/dev/null || true
 		git remote add local "$BARE_REPO" 2>/dev/null || true
-		popd > /dev/null
+		popd > /dev/null || true
 	else
 		info "$PACKAGE - updating local package repository"
-		pushd "$WORKTREE" > /dev/null
+		pushd "$WORKTREE" > /dev/null || exit 1
 		git remote remove local 2>/dev/null || true
 		git remote add local "$BARE_REPO" 2>&1 || warn "failed to add local remote"
 		git fetch --tags local
 		git pull local "$(git rev-parse --abbrev-ref HEAD)"
-		popd > /dev/null
+		popd > /dev/null || true
 	fi
 }
 
@@ -734,11 +734,11 @@ command:pull() {
 		[ -n "$ACCOUNT" ] && validate_account_name "$ACCOUNT"
 	done
 
-	pushd "$WORKTREE" > /dev/null
+	pushd "$WORKTREE" > /dev/null || exit 1
 	local BRANCH=$(git rev-parse --abbrev-ref HEAD)
 	if [ ${#ACCOUNTS[@]} -eq 0 ]; then
-		git fetch --tags local || { popd > /dev/null; fatal "failed to fetch from local"; }
-		git merge "local/$BRANCH" || { popd > /dev/null; fatal "failed to merge from local"; }
+		git fetch --tags local || { popd > /dev/null || true; fatal "failed to fetch from local"; }
+		git merge "local/$BRANCH" || { popd > /dev/null || true; fatal "failed to merge from local"; }
 		for REMOTE in $(git remote | grep '@'); do
 			ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || continue
 			info "pulling from $REMOTE"
@@ -757,7 +757,7 @@ command:pull() {
 			fi
 		done
 	fi
-	popd > /dev/null
+	popd > /dev/null || true
 }
 
 #------------------------------------------------------------------------------
@@ -769,9 +769,9 @@ command:push() {
 		[ -n "$ACCOUNT" ] && validate_account_name "$ACCOUNT"
 	done
 
-	pushd "$WORKTREE" > /dev/null
+	pushd "$WORKTREE" > /dev/null || exit 1
 	if [ ${#ACCOUNTS[@]} -eq 0 ]; then
-		git push -u local HEAD --tags || { popd > /dev/null; fatal "failed to push to local"; }
+		git push -u local HEAD --tags || { popd > /dev/null || true; fatal "failed to push to local"; }
 		for REMOTE in $(git remote | grep '@'); do
 			if ssh "$REMOTE" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
 				ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || true
@@ -798,7 +798,7 @@ command:push() {
 			fi
 		done
 	fi
-	popd > /dev/null
+	popd > /dev/null || true
 }
 
 #------------------------------------------------------------------------------
@@ -810,9 +810,9 @@ command:release() {
 		[ -n "$ACCOUNT" ] && validate_account_name "$ACCOUNT"
 	done
 
-	pushd "$WORKTREE" > /dev/null
+	pushd "$WORKTREE" > /dev/null || exit 1
 	info "$PACKAGE - pushing to local (local bare repo)"
-	git push -u local HEAD --tags || { popd > /dev/null; fatal "failed to push to local"; }
+	git push -u local HEAD --tags || { popd > /dev/null || true; fatal "failed to push to local"; }
 
 	if [ ${#ACCOUNTS[@]} -gt 0 ]; then
 		for ACCOUNT in "${ACCOUNTS[@]}"; do
@@ -854,7 +854,7 @@ command:release() {
 		done
 	fi
 
-	popd > /dev/null
+	popd > /dev/null || true
 }
 
 #------------------------------------------------------------------------------
@@ -925,7 +925,7 @@ command:sync() {
 			fatal "repository for package $PACKAGE is not available at $ACCOUNT"
 		fi
 	elif [ -d "$WORKTREE" ]; then
-		pushd "$WORKTREE" > /dev/null
+		pushd "$WORKTREE" > /dev/null || exit 1
 		git stash && git clean -fd
 		git fetch --tags local
 		git merge "local/$(git rev-parse --abbrev-ref HEAD)"
@@ -933,7 +933,7 @@ command:sync() {
 		git fetch --tags "$ACCOUNT"
 		git merge "$ACCOUNT/$(git rev-parse --abbrev-ref HEAD)"
 		git push -u "$ACCOUNT" HEAD --tags
-		popd > /dev/null
+		popd > /dev/null || true
 	else
 		fatal "$WORKTREE is not a directory"
 	fi
@@ -947,11 +947,11 @@ command:drop() {
 	test -z "$ACCOUNT" && fatal "please specify an account"
 	validate_account_name "$ACCOUNT"
 
-	pushd "$WORKTREE" > /dev/null
+	pushd "$WORKTREE" > /dev/null || exit 1
 	if git remote | grep -qxF -- "$ACCOUNT"; then
 		git remote remove "$ACCOUNT"
 	fi
-	popd > /dev/null
+	popd > /dev/null || true
 }
 
 #------------------------------------------------------------------------------
@@ -962,13 +962,13 @@ command:depends() {
 		if [ "$(command:type)" = "system" ]; then
 			test "$EUID" -eq 0 || fatal "system packages dependencies have to be run as root user"
 		fi
-		pushd "$WORKTREE" > /dev/null
+		pushd "$WORKTREE" > /dev/null || exit 1
 		# shellcheck disable=SC2045  # dependency script names are controlled
 		for SCRIPT in $(ls -1 "$WORKTREE/.$SELF/depends"); do
 			info "$PACKAGE - installing dependency $SCRIPT"
 			"$WORKTREE/.$SELF/depends/$SCRIPT"
 		done
-		popd > /dev/null
+		popd > /dev/null || true
 	fi
 }
 
@@ -976,10 +976,10 @@ command:depends() {
 command:bundles() {
 	[ -n "$PACKAGE" ] && validate_package_name "$PACKAGE" || fatal "no package provided"
 	test -z "$WORKTREE" && fatal "bundles - package $PACKAGE has no worktree - please stage it"
-	pushd "$WORKTREE" > /dev/null
+	pushd "$WORKTREE" > /dev/null || exit 1
 	# shellcheck disable=SC2010  # bundle names are validated
 	ls -1 "$(command:bundle "$(command:type)")" | grep "^$PACKAGE-"
-	popd > /dev/null
+	popd > /dev/null || true
 }
 
 #------------------------------------------------------------------------------
@@ -1004,7 +1004,7 @@ command:package() {
 	test -z "$WORKTREE" && fatal "package - package $PACKAGE has no worktree - please stage it"
 	local VERSION=$1
 
-	pushd "$WORKTREE" > /dev/null
+	pushd "$WORKTREE" > /dev/null || exit 1
 	test -z "$VERSION" && local VERSION=$(command:versions | tail -1)
 
 	if [ -x ".$SELF/package" ]; then
@@ -1019,7 +1019,7 @@ command:package() {
 		if [ -d "$PREFIX" ]; then
 			if [ -z "$SELF_FORCE" ]; then
 				info "package $PACKAGE: already packaged in $PREFIX"
-				popd > /dev/null
+				popd > /dev/null || true
 				return 0
 			fi
 		fi
@@ -1034,7 +1034,7 @@ command:package() {
 	else
 		info "package $PACKAGE: no packaging script available"
 	fi
-	popd > /dev/null
+	popd > /dev/null || true
 }
 
 help:package() {
@@ -1059,7 +1059,7 @@ command:install() {
 	test -z "$WORKTREE" && fatal "install: package $PACKAGE has no worktree - please stage it"
 	local VERSION=$1
 
-	pushd "$WORKTREE" > /dev/null
+	pushd "$WORKTREE" > /dev/null || exit 1
 	test -z "$VERSION" && local VERSION=$(command:versions | tail -1)
 
 	local PACKAGE_TYPE=$(command:type)
@@ -1093,14 +1093,14 @@ command:install() {
 		fi
 
 		for BUNDLED_PACKAGE in $(command:bundles); do
-			pushd "$(command:bundle "$PACKAGE_TYPE")" > /dev/null
+			pushd "$(command:bundle "$PACKAGE_TYPE")" > /dev/null || exit 1
 			command:action "$STOW" --target="$(command:target "$PACKAGE_TYPE")" --delete "$BUNDLED_PACKAGE"
-			popd > /dev/null
+			popd > /dev/null || true
 		done
 
-		pushd "$(command:bundle "$PACKAGE_TYPE")" > /dev/null
+		pushd "$(command:bundle "$PACKAGE_TYPE")" > /dev/null || exit 1
 		command:action "$STOW" --target="$(command:target "$PACKAGE_TYPE")" "$PACKAGE-$VERSION"
-		popd > /dev/null
+		popd > /dev/null || true
 		mkdir -p "$SELF_DATA" && echo "$VERSION" | tee "$SELF_DATA/$PACKAGE" > /dev/null
 	fi
 
@@ -1112,7 +1112,7 @@ command:install() {
 			command:action umask "$OLDUMASK"; fatal "$PACKAGE - install script failure"
 		fi
 	fi
-	popd > /dev/null
+	popd > /dev/null || true
 }
 
 help:install() {
@@ -1131,21 +1131,21 @@ command:delete() {
 
 	local PACKAGE_TYPE=$(command:type)
 	for BUNDLED_PACKAGE in $(command:bundles); do
-		pushd "$(command:bundle "$PACKAGE_TYPE")" > /dev/null
+		pushd "$(command:bundle "$PACKAGE_TYPE")" > /dev/null || exit 1
 		command:action "$STOW" --target="$(command:target "$PACKAGE_TYPE")" --delete "$BUNDLED_PACKAGE"
-		popd > /dev/null
+		popd > /dev/null || true
 	done
 	rm -f "$SELF_DATA/$PACKAGE"
 
 	if [ -x "$WORKTREE/.$SELF/delete" ]; then
-		pushd "$WORKTREE" > /dev/null
+		pushd "$WORKTREE" > /dev/null || exit 1
 		if ".$SELF/delete"; then
 			info "$PACKAGE - delete script successful"
 		else
-			popd > /dev/null
+			popd > /dev/null || true
 			fatal "$PACKAGE - delete script failure"
 		fi
-		popd > /dev/null
+		popd > /dev/null || true
 	fi
 }
 
@@ -1221,9 +1221,9 @@ elif command:list | grep -q ^$PACKAGE$; then
 	if [ -z "$COMMAND" ]; then
 		fatal "$PACKAGE - please specify a command"
 	elif [ -x $WORKTREE/command/$COMMAND ]; then
-		pushd $WORKTREE > /dev/null
+		pushd $WORKTREE > /dev/null || exit 1
                 ./command/$COMMAND "${@:3}"
-		popd > /dev/null
+		popd > /dev/null || true
 	else
 		fatal "$PACKAGE - unknown package command ${*:2}"
 	fi
