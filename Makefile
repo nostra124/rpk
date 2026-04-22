@@ -1,4 +1,4 @@
-.PHONY: all check test lint clean install install-bin install-etc install-share install-man install-doc install-skills help
+.PHONY: all check test lint clean install install-bin install-etc install-share install-man install-doc install-skills install-skills-user uninstall-skills-user help
 
 -include config.mk
 
@@ -42,6 +42,8 @@ help:
 	@echo "  make install-man - Install man pages to \$$INSTALL_MAN"
 	@echo "  make install-doc - Install documentation to \$$INSTALL_DOC"
 	@echo "  make install-skills - Install agent skills (Claude Code, opencode, raven)"
+	@echo "  make install-skills-user - Symlink installed skills into user agent dirs (opt-in)"
+	@echo "  make uninstall-skills-user - Remove symlinks created by install-skills-user"
 	@echo "  make clean       - Remove installed files"
 	@echo ""
 	@echo "Variables:"
@@ -128,10 +130,53 @@ install-skills:
 		cp "$(SKILLS_DIR)/rpk-author/opencode.md" "$(DESTDIR)$(INSTALL_SHARE)/opencode/commands/rpk-author.md"; \
 	fi
 	@echo ""
-	@echo "Activate per agent by symlinking from the user config dir:"
-	@echo "  Claude Code:  ln -sf $(INSTALL_SHARE)/claude/skills/rpk-author \$$HOME/.claude/skills/rpk-author"
-	@echo "  Raven:        ln -sf $(INSTALL_SHARE)/raven/skills/rpk-author \$$HOME/.raven/workspace/skills/rpk-author"
-	@echo "  opencode:     ln -sf $(INSTALL_SHARE)/opencode/commands/rpk-author.md \$$HOME/.config/opencode/commands/rpk-author.md"
+	@echo "Run 'make install-skills-user' to activate skills in user agent dirs that already exist,"
+	@echo "or symlink manually:"
+	@echo "  ln -sf $(INSTALL_SHARE)/claude/skills/rpk-author \$$HOME/.claude/skills/rpk-author"
+	@echo "  ln -sf $(INSTALL_SHARE)/raven/skills/rpk-author \$$HOME/.raven/workspace/skills/rpk-author"
+	@echo "  ln -sf $(INSTALL_SHARE)/opencode/commands/rpk-author.md \$$HOME/.config/opencode/commands/rpk-author.md"
+
+# Opt-in: symlink the installed skill files into the user's agent dirs, but
+# only if those dirs already exist (never create a dotfile tree on the user's
+# behalf). Idempotent — safe to re-run.
+install-skills-user:
+	@claude_dir="$${HOME}/.claude/skills"; \
+	 raven_dir="$${HOME}/.raven/workspace/skills"; \
+	 opencode_dir="$${HOME}/.config/opencode/commands"; \
+	 src_claude="$(INSTALL_SHARE)/claude/skills/rpk-author"; \
+	 src_raven="$(INSTALL_SHARE)/raven/skills/rpk-author"; \
+	 src_opencode="$(INSTALL_SHARE)/opencode/commands/rpk-author.md"; \
+	 if [ -d "$$claude_dir" ] && [ -d "$$src_claude" ]; then \
+	 	ln -snf "$$src_claude" "$$claude_dir/rpk-author"; \
+	 	echo "activated Claude Code skill at $$claude_dir/rpk-author"; \
+	 else \
+	 	echo "skipping Claude Code: $$claude_dir not present or installed skill missing"; \
+	 fi; \
+	 if [ -d "$$raven_dir" ] && [ -d "$$src_raven" ]; then \
+	 	ln -snf "$$src_raven" "$$raven_dir/rpk-author"; \
+	 	echo "activated Raven skill at $$raven_dir/rpk-author"; \
+	 else \
+	 	echo "skipping Raven: $$raven_dir not present or installed skill missing"; \
+	 fi; \
+	 if [ -d "$$opencode_dir" ] && [ -f "$$src_opencode" ]; then \
+	 	ln -snf "$$src_opencode" "$$opencode_dir/rpk-author.md"; \
+	 	echo "activated opencode command at $$opencode_dir/rpk-author.md"; \
+	 else \
+	 	echo "skipping opencode: $$opencode_dir not present or installed command missing"; \
+	 fi
+
+# Inverse of install-skills-user: remove the symlinks, leave real files alone.
+uninstall-skills-user:
+	@for link in \
+		"$${HOME}/.claude/skills/rpk-author" \
+		"$${HOME}/.raven/workspace/skills/rpk-author" \
+		"$${HOME}/.config/opencode/commands/rpk-author.md"; \
+	 do \
+	 	if [ -L "$$link" ]; then \
+	 		rm -f -- "$$link"; \
+	 		echo "removed $$link"; \
+	 	fi; \
+	 done
 
 clean:
 	@echo "Removing rpk-installed artefacts (targeted — won't touch other packages)..."

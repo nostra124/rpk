@@ -337,6 +337,30 @@ rpk <pkg> install              # package + stow into ~/.local
   commands ran but didn't honour `$TARGET`. Double-check the `--prefix=`
   or equivalent flag is wired to `"$TARGET"`, not to `$HOME/.local`.
 
+## Agent integration
+
+`make install` ships the `rpk-author` skill into three share paths:
+
+    $(INSTALL_SHARE)/claude/skills/rpk-author/SKILL.md
+    $(INSTALL_SHARE)/raven/skills/rpk-author/SKILL.md
+    $(INSTALL_SHARE)/opencode/commands/rpk-author.md
+
+To activate the skill for each agent, you need to surface those files
+from the share tree into whichever config directory the agent reads
+from. Two options:
+
+- **`make install-skills-user`** (opt-in) — creates symlinks into
+  `~/.claude/skills/`, `~/.raven/workspace/skills/`, and
+  `~/.config/opencode/commands/`, but **only** for agent dirs that
+  already exist. Won't create dotfile trees on your behalf.
+  Idempotent; safe to re-run after `make install`.
+- **Manual symlink** — `ln -sf <share-path> <agent-path>` per agent.
+  Use this if you want explicit control or if your agent dirs live
+  somewhere nonstandard.
+
+`make uninstall-skills-user` reverses the opt-in target by removing
+the symlinks (never touches real files).
+
 ## See also
 
 - `rpk(1)` — full CLI reference (installed as a man page).

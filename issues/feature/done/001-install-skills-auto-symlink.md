@@ -2,7 +2,7 @@
 id: FEAT-001
 type: feature
 priority: medium
-status: open
+status: done
 ---
 
 # Auto-symlink installed agent skills into user config dirs
