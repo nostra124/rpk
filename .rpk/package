@@ -22,7 +22,6 @@ git config advice.detachedHead false
 git checkout "$COMMIT" || die "failed to checkout $COMMIT for version $VERSION"
 
 ./configure --prefix="$TARGET"
-make
 make install
 
 git checkout "$BRANCH" --force
