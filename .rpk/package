@@ -5,6 +5,14 @@ function die() {
 	exit 100
 }
 
+# Preflight: we invoke configure + make below. Fail loud and early with a
+# clear message rather than letting `make: command not found` surface from
+# deep inside the build. This matters most on fresh hosts reached via
+# `rpk release` where the remote may never have had build tools installed.
+for tool in make rsync git; do
+	command -v "$tool" >/dev/null 2>&1 || die "$tool not installed — install build tools on this host first"
+done
+
 PACKAGE=$(bin/rpk identity)
 VERSION=$1
 

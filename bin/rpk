@@ -776,7 +776,20 @@ command:stage() {
 		git remote remove local 2>/dev/null || true
 		git remote add local "$BARE_REPO" 2>&1 || warn "failed to add local remote"
 		git fetch --tags "${FORCE_OPT[@]}" local
-		git pull local "$(git rev-parse --abbrev-ref HEAD)"
+		local BRANCH
+		BRANCH=$(git rev-parse --abbrev-ref HEAD)
+		if [ -n "$SELF_FORCE" ]; then
+			# Under -f the local bare repo is authoritative. A remote may
+			# have an unrelated history (freshly init'd, manually recreated,
+			# or stale from a previous incarnation) which makes `git pull`
+			# abort with "refusing to merge unrelated histories" and leaves
+			# the worktree pointing at whatever old HEAD it had — install
+			# then silently builds the wrong version. Hard-reset instead so
+			# the local repo always wins.
+			git reset --hard "local/$BRANCH" || warn "failed to reset to local/$BRANCH"
+		else
+			git pull local "$BRANCH"
+		fi
 		popd > /dev/null || true
 	fi
 }
@@ -876,43 +889,50 @@ command:release() {
 	info "$PACKAGE - pushing to local (local bare repo)"
 	git push "${FORCE_OPT[@]}" -u local HEAD --tags || { popd > /dev/null || true; fatal "failed to push to local"; }
 
+	local FORCE_FLAG=""
+	[ -n "$SELF_FORCE" ] && FORCE_FLAG="-f"
+
+	release:to-remote() {
+		local REMOTE=$1
+		if ssh "$REMOTE" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
+			ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || return 1
+			info "$PACKAGE - pushing to $REMOTE (remote)"
+			git push "${FORCE_OPT[@]}" "$REMOTE" HEAD --tags || warn "$PACKAGE - failed to push to $REMOTE"
+		else
+			info "$PACKAGE - creating bare repo on $REMOTE"
+			ssh "$REMOTE" "mkdir -p ~/.local/var/lib/repo && git init --bare -b main ~/.local/var/lib/repo/$PACKAGE" || warn "$PACKAGE - failed to create bare repo on $REMOTE"
+			ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || true
+			git push "${FORCE_OPT[@]}" "$REMOTE" HEAD --tags || warn "$PACKAGE - failed to push to $REMOTE"
+		fi
+
+		# Upload into a per-run, per-user temp dir so concurrent releases
+		# from different accounts (e.g. user + root) don't collide on a
+		# shared /tmp/rpk path. mktemp is POSIX-ish and available on every
+		# host we target.
+		local REMOTE_DIR
+		REMOTE_DIR=$(ssh "$REMOTE" 'mktemp -d /tmp/rpk-XXXXXX') || {
+			warn "$PACKAGE - failed to create remote temp dir on $REMOTE"
+			return 1
+		}
+		info "$PACKAGE - uploading rpk to $REMOTE"
+		if ! scp "$0" "$REMOTE:$REMOTE_DIR/rpk"; then
+			warn "$PACKAGE - failed to upload rpk to $REMOTE"
+			ssh "$REMOTE" "rm -rf $REMOTE_DIR" 2>/dev/null || true
+			return 1
+		fi
+
+		info "$PACKAGE - running update on $REMOTE"
+		ssh "$REMOTE" "chmod +x $REMOTE_DIR/rpk && PATH=$REMOTE_DIR:\$PATH $REMOTE_DIR/rpk $FORCE_FLAG $PACKAGE update; rc=\$?; rm -rf $REMOTE_DIR; exit \$rc" \
+			|| warn "$PACKAGE - failed to update on $REMOTE"
+	}
+
 	if [ ${#ACCOUNTS[@]} -gt 0 ]; then
 		for ACCOUNT in "${ACCOUNTS[@]}"; do
-			if ssh "$ACCOUNT" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
-				ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
-				info "$PACKAGE - pushing to $ACCOUNT (remote)"
-				git push "${FORCE_OPT[@]}" "$ACCOUNT" HEAD --tags || warn "$PACKAGE - failed to push to $ACCOUNT"
-			else
-				info "$PACKAGE - creating bare repo on $ACCOUNT"
-				ssh "$ACCOUNT" "mkdir -p ~/.local/var/lib/repo && git init --bare -b main ~/.local/var/lib/repo/$PACKAGE" || warn "$PACKAGE - failed to create bare repo on $ACCOUNT"
-				ensure-remote "$ACCOUNT" "$ACCOUNT:~/.local/var/lib/repo/$PACKAGE" || true
-				git push "${FORCE_OPT[@]}" "$ACCOUNT" HEAD --tags || warn "$PACKAGE - failed to push to $ACCOUNT"
-			fi
-
-			info "$PACKAGE - uploading rpk to $ACCOUNT"
-			scp "$0" "$ACCOUNT:/tmp/rpk" || warn "$PACKAGE - failed to upload rpk to $ACCOUNT"
-
-			info "$PACKAGE - running update on $ACCOUNT"
-			ssh "$ACCOUNT" "PATH=/tmp:\$PATH /tmp/rpk $PACKAGE update" || warn "$PACKAGE - failed to update on $ACCOUNT"
+			release:to-remote "$ACCOUNT"
 		done
 	else
 		for REMOTE in $(git remote | grep '@'); do
-			if ssh "$REMOTE" "test -d ~/.local/var/lib/repo/$PACKAGE" 2>/dev/null; then
-				ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || continue
-				info "$PACKAGE - pushing to $REMOTE (remote)"
-				git push "${FORCE_OPT[@]}" "$REMOTE" HEAD --tags || warn "$PACKAGE - failed to push to $REMOTE"
-			else
-				info "$PACKAGE - creating bare repo on $REMOTE"
-				ssh "$REMOTE" "mkdir -p ~/.local/var/lib/repo && git init --bare -b main ~/.local/var/lib/repo/$PACKAGE" || warn "$PACKAGE - failed to create bare repo on $REMOTE"
-				ensure-remote "$REMOTE" "$REMOTE:~/.local/var/lib/repo/$PACKAGE" || true
-				git push "${FORCE_OPT[@]}" "$REMOTE" HEAD --tags || warn "$PACKAGE - failed to push to $REMOTE"
-			fi
-
-			info "$PACKAGE - uploading rpk to $REMOTE"
-			scp "$0" "$REMOTE:/tmp/rpk" || warn "$PACKAGE - failed to upload rpk to $REMOTE"
-
-			info "$PACKAGE - running update on $REMOTE"
-			ssh "$REMOTE" "PATH=/tmp:\$PATH /tmp/rpk $PACKAGE update" || warn "$PACKAGE - failed to update on $REMOTE"
+			release:to-remote "$REMOTE"
 		done
 	fi
 
@@ -1174,27 +1194,46 @@ command:install() {
 			fi
 		done
 
-		# Under -f, pre-remove any non-stow-owned target files that the
-		# about-to-happen stow would refuse to overwrite. Covers:
+		# Under -f, pre-remove / unstow anything that the about-to-happen
+		# stow would refuse to overwrite. Covers three shapes of stow
+		# complaint:
 		#   * "cannot stow … over existing target X since …"
 		#     (regular file / directory in the way)
 		#   * "existing target is not owned by stow: Y"
 		#     (absolute symlink or foreign file at the target path)
+		#   * "existing target is stowed to a different package: X => ../pkg/FOREIGN/X"
+		#     (a different rpk package currently owns the path — e.g. the
+		#     `scripts` package shipping its own bin/rpk). We `stow --delete`
+		#     the foreign package so ours can take over. The user can
+		#     restow the foreign package later if they still want it.
 		if [ -n "$SELF_FORCE" ]; then
-			local conflicts
-			conflicts=$(cd "$BUNDLE_DIR" && "$STOW" --no --verbose=2 \
-				--target="$TARGET_DIR" "$PACKAGE-$VERSION" 2>&1 \
-				| sed -n \
+			local stow_dry
+			stow_dry=$(cd "$BUNDLE_DIR" && "$STOW" --no --verbose=2 \
+				--target="$TARGET_DIR" "$PACKAGE-$VERSION" 2>&1)
+			local conflicts foreign_pkgs
+			conflicts=$(printf '%s\n' "$stow_dry" | sed -n \
 					-e 's|.*over existing target \([^ ]*\) since.*|\1|p' \
 					-e 's|.*not owned by stow: \(.*\)|\1|p')
+			foreign_pkgs=$(printf '%s\n' "$stow_dry" | sed -n \
+					-e 's|.*stowed to a different package: [^ ]* => \.\./[^/]*/\([^/]*\)/.*|\1|p' \
+					| sort -u)
 			for rel in $conflicts; do
 				info "removing conflicting target $TARGET_DIR/$rel (force mode)"
 				rm -f -- "$TARGET_DIR/$rel"
 			done
+			for foreign in $foreign_pkgs; do
+				info "unstowing foreign package $foreign (force mode)"
+				pushd "$BUNDLE_DIR" > /dev/null || exit 1
+				command:action "$STOW" --target="$TARGET_DIR" --delete "$foreign" || true
+				popd > /dev/null || true
+			done
 		fi
 
 		pushd "$BUNDLE_DIR" > /dev/null || exit 1
-		command:action "$STOW" --target="$TARGET_DIR" "$PACKAGE-$VERSION"
+		if ! command:action "$STOW" --target="$TARGET_DIR" "$PACKAGE-$VERSION"; then
+			popd > /dev/null || true
+			fatal "$PACKAGE - stow failed for $PACKAGE-$VERSION"
+		fi
 		popd > /dev/null || true
 		mkdir -p "$SELF_DATA" && echo "$VERSION" | tee "$SELF_DATA/$PACKAGE" > /dev/null
 	fi
