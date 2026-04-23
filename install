@@ -43,8 +43,12 @@ Options:
     --branch=NAME    branch to clone (default: master)
     -h, --help       show this help
 
-Environment overrides (same as flags):
-    RPK_REPO_URL, RPK_REPO_BRANCH
+Environment overrides:
+    RPK_REPO_URL, RPK_REPO_BRANCH    same as --repo / --branch
+    RPK_INSTALL_NO_FORCE=1           pass plain 'rpk install' instead of
+                                     'rpk -f install'. Disables the
+                                     automatic cleanup of conflicting
+                                     target files and stale bundle dirs.
 
 Installation target is always \$HOME/.local. For a different prefix,
 use 'make install INSTALL_PREFIX=<path>' in a checkout directly.
@@ -105,8 +109,14 @@ done
 # (which invokes `bin/rpk …` via relative path) and `.rpk/install`
 # (which invokes `rpk target` / `rpk type`) both resolve the binary.
 cd -- "$SOURCE"
-echo "→ handing off to 'rpk install' (bundle + stow + post-install hook)..."
-PATH="$SOURCE/bin:$PATH" ./bin/rpk install
+echo "→ handing off to 'rpk -f install' (bundle + stow + post-install hook)..."
+# -f on: ./install is the bootstrap / reinstall entrypoint, so over-the-top
+# upgrades from a previous non-stow install (or from a pre-copy bundle
+# containing absolute symlinks) must clean up conflicting target files and
+# stale bundle dirs automatically. Skip with RPK_INSTALL_NO_FORCE=1.
+FORCE_FLAG="-f"
+[ -n "${RPK_INSTALL_NO_FORCE:-}" ] && FORCE_FLAG=""
+PATH="$SOURCE/bin:$PATH" ./bin/rpk $FORCE_FLAG install
 
 TARGET="$HOME/.local"
 cat <<DONE
