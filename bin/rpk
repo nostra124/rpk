@@ -1151,6 +1151,14 @@ command:install() {
 		test "$EUID" -eq 0 || fatal "system packages have to be installed as root user"
 	fi
 
+	# Run dependency scripts before anything that might need them. The
+	# individual scripts short-circuit (`command -v $BIN && exit 0`) when
+	# the tool is already present, so this is cheap on provisioned hosts
+	# and the only way fresh remotes (see svarok) pick up build tools on
+	# their own during `rpk release` — install/update previously assumed
+	# depends had been run manually, which nobody does.
+	command:depends
+
 	if [ -x ".$SELF/package" ]; then
 		local PREFIX=$(command:bundle "$PACKAGE_TYPE")/$PACKAGE-$VERSION
 		if [ ! -d "$PREFIX" ]; then
